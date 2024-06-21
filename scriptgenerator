@@ -1,0 +1,107 @@
+ALTER PROCEDURE [dbo].[cad_schema_instance_value_comp] 
+	-- Add the parameters for the stored procedure here
+@tbl varchar(30),
+@instance1 varchar(30), @db1 varchar(30),
+@instance2 varchar(30), @db2 varchar(30)
+AS
+BEGIN
+
+	SET NOCOUNT ON;
+
+WITH  z AS(
+SELECT
+	tablENAME tbl
+	,REPLACE(PRIMARY_KEY,'/',',') pk
+	,primary_key
+	,'SELECT 1 dbserver,* FROM ['+@instance1+'].'+@db1+'.[dbo].['+tablename+'] UNION SELECT 2,* FROM ['+@instance2+'].'+@db2+'.[dbo].['+tablename+'] ORDER BY '+replace( primary_key ,'/',',') slct_stmnt
+FROM [elpdba].[live_940].[dbo].[cad_schema_tables]
+WHERE tablename = @tbl
+
+), y AS( 
+	select distinct 
+		name+',' colmn 
+		,CASE WHEN pk like '%'+name+'%' THEN 1 ELSE 2 END typ 
+		,PK 
+		,name [col_name]
+		,CASE WHEN name like '%dts' or name in( 'cpers','upers','empid','cterm','uterm') THEN 99 END flagg
+		,'x' allprim
+	FROM SYS.all_columns
+		LEFT JOIN z ON object_name(object_id)= z.tbl
+	WHERE object_name(object_id)=@tbl
+
+), x AS( 
+SELECT 'WITH cte AS(' col1,null col2,-101 seg_num
+	UNION
+SELECT 'SELECT '''+@instance1+''' dbserver,* FROM ['+@instance1+'].['+@db1+'].[dbo].['+@tbl+'] UNION SELECT '''+@instance2+''' ,* FROM ['+@instance2+'].['+@db2+'].[dbo].['+@tbl+']  ',null,-99
+	UNION
+SELECT '), cnt AS( ',null,-98
+	UNION
+SELECT 'SELECT '+pk+' ,count(dbserver) cnt FROM cte GROUP BY '+z.pk ,null, -44 FROM z 
+	UNION 
+SELECT ')' ,null ,-33
+	UNION
+SELECT 'SELECT '''+primary_key+''' AS pk , cnt ,* ' col1 ,'' col2 ,1 seg_num FROM z
+	UNION
+SELECT 'FROM( ' ,null,2
+	UNION 
+SELECT 'SELECT' ,null,3
+	UNION
+SELECT '    dbserver, ','',4
+	UNION 
+SELECT '    z.'+colmn ,null,5 FROM y WHERE typ = 1
+	UNION
+SELECT '    z.'+colmn ,'lead( '+colmn+' 1) over(partition by '+pk+' order by dbserver ) AS lead_'+colmn ,6 FROM y WHERE typ = 2
+	UNION 
+SELECT 'FROM cte AS z' ,null,7
+	UNION
+SELECT ') AS z ' ,null ,8
+	UNION
+SELECT '  LEFT JOIN cnt ON' ,null,9
+	UNION	
+SELECT '     AND z.'+[col_name]+' = cnt.'+[col_name] ,null ,10 FROM y WHERE typ = 1
+	UNION 
+SELECT 'WHERE' ,null,11
+	UNION
+SELECT ' -  (dbserver ='''+@instance1+''' AND(' ,null, 12
+	UNION 
+SELECT '    OR '+[col_name]+' <> lead_'+[col_name] ,null,13  FROM y WHERE typ = 2 AND flagg is null
+	UNION 
+SELECT ')) OR ' ,null, 14
+	UNION
+SELECT 'cnt<>2' ,null,15
+ 
+	UNION 
+SELECT 'ORDER BY '+'z.'+replace( pk ,', ',',z.' ),null,16 FROM z
+
+
+)
+SELECT 
+	concat(col1,' ',col2) script
+FROM(
+	SELECT
+		CASE 
+			WHEN seg_num in( 12,13,14 ) AND q.typ = 1 THEN null
+			when seg_num = 10 ANd row_number() over( partition by seg_num order by col1 ) =1 then REPLACE( col1,'     AND ','' )
+			WHEN seg_num =12 AND row_number() over( partition by seg_num order by col1 ) =1 then right(col1,len(col1)-2 ) 
+			WHEN seg_num = 13 and row_number() over( partition by seg_num order by col1 ) =1 THEN replace( col1 ,' OR ' ,'' )
+			when seg_num = 5 AND row_number() over( partition by seg_num order by col1 desc ) = 1 and q.typ = 1 THEN left( col1 ,len(col1)-1)
+			else col1
+		end col1
+		,CASE
+			WHEN seg_num = 6 and row_number() over( partition by seg_num order by col1 desc )= 1 THEN left(col2,len(col2)-1)
+			
+			ELSE col2
+		END col2
+		,seg_num
+		,row_number() over( partition by seg_num order by col1 ) rn
+		,row_number() over( partition by seg_num order by col1 desc ) rn_desc 
+	FROM x
+		LEFT JOIN( select max(typ) typ from y ) q ON q.typ is not null
+) 
+	AS z 
+WHERE len(concat(col1,' ',col2)) <> 0
+ORDER BY seg_num ,RN
+ END
+GO
+
+
