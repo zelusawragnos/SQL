@@ -1,0 +1,71 @@
+WITH us_rn AS( 
+SELECT		 'DP' us,'DP' uss,1 us_rn
+UNION select 'E'	,'E'	,2
+UNION select 'S'	,'S',3
+UNION select 'TR'	,'TR',4
+UNION select 'TA'	,'TA',5
+UNION select 'am'	,'A',0
+UNION SELECT 'aq'	,'A',0
+union select 'a'	,'A',0
+union select 'lo'	,'lo',0
+
+), u AS( 
+SELECT unid ,num_1 ,unit_status ,us_rn ,cdts 
+FROM(
+	SELECT 
+		unid
+		,u.num_1
+		,coalesce(uss,unit_status) unit_status
+		,us_rn
+		,u.cdts
+		,CASE WHEN u.unit_status in('a','am') THEN lag(u.unit_status,1)over(partition by u.unid, u.num_1 order by u.cdts) END l_us
+	FROM un_hi u 
+		INNER JOIN us_rn uu ON u.unit_status = uu.us
+		INNER JOIN agency_event ae ON u.num_1 = ae.num_1 
+	WHERE @ag_id = u.ag_id
+		AND left(u.cdts,14) BETWEEN left(@s,14) AND left(@e,14)
+		AND unit_status not in('uc','ue','uv','~','cu','dc','ut') 
+
+)
+	AS z
+WHERE (unit_status='AM' and l_us<>'AM') OR unit_status<>'AM'
+
+), av AS( 
+SELECT * 
+	,lag(num_1,1)over(partition by unid  order by cdts ,us_rn )				AS lag_num
+	,lead(num_1,1)over(partition by unid order by cdts ,us_rn ,unit_status)	AS lead_num
+	,lag(unit_status,1) over(partition by unid order by cdts )				AS lag_stat
+FROM(select * from u union select unid ,null ,'X' ,0 ,cdts from u where unit_status = 'a') AS z
+
+
+), ev_disp AS( 
+SELECT 
+	unid ,num_1 ,cdts ,unit_status ,row_number() over( partition by unid ,num_1 order by cdts ,us_rn ,unit_status) rn
+FROM av 
+WHERE 
+	num_1 is not null 
+	AND( 
+		lag_stat = 'x'
+		OR num_1 <> (coalesce(lag_num,'X'))
+		OR num_1 <> (coalesce(lead_num,'X'))
+	)
+
+
+)--, unit_dispatch AS(
+SELECT unid ,num_1 ,st ,et
+FROM(
+	SELECT 
+ 		z.unid
+		,z.num_1
+		,z.cdts st
+		,y.cdts et 
+	FROM ev_disp z 
+		LEFT JOIN ev_disp y ON z.unid = y.unid AND z.num_1 = y.num_1 AND z.rn+1 = y.rn AND z.unit_status <>'A'
+	WHERE z.unit_status = 'DP' 
+)
+	AS z
+WHERE 
+	left(z.st,14) BETWEEN left(@starttime,14) and left(@endtime,14)
+	or left(z.et,14) BETWEEN left(@starttime,14) and left(@endtime,14)
+	or( left(z.st,14)<= left(@starttime,14) and left(z.et,14) >= left(@endtime,14) )
+ORDER BY num_1
