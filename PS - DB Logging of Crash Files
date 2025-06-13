@@ -1,0 +1,89 @@
+# Captures application crash file; extracts user-inputted crash reason,
+## terminal name & timestamp
+
+
+
+# Database connection
+$sqlServer = "archive" 
+$database = "archivedb"
+
+# Query database for client terminal names
+$logserverquery = "SELECT term FROM term WHERE try_cast(right(term,1) as int) is not null AND left(term,3) not in('xdr','wrm')"
+$logServers = @()
+
+#Log execution of scheduled task
+$logfile = "C:\MaintenanceBats\CAD_Crash_Log\Logs.csv"
+$NOW = get-date  
+$msg = "Executed at: $now"
+      Add-Content -Path $logfile -Value $msg
+
+
+#pass client terminal names into array
+try {
+    $cadterm = Invoke-Sqlcmd -ServerInstance $sqlServer -Username $username -Password $password -Database $database -Query $logserverquery
+    foreach ($row in $cadterm) {
+        $logServers += $row.term
+    }
+} catch {
+    Write-Error "Failed to retrieve server names from database: $_"
+    exit 1
+}
+
+# Search terminls for filname
+$ipslog = @()
+$yesterday = (Get-Date).Date.AddDays(-1)
+$today = (Get-Date).Date
+
+foreach ($server in $logServers) {
+    $logs = Get-ChildItem -Path "\\$server\c$\Temp\" -File -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -like "*ipslog_*" 
+    }
+    $ipslog += $logs
+}
+
+
+
+#Search ipslog_ files for string 
+$phrase = "User entered the following in input box:"
+
+foreach ($file in $ipslog) {
+    $matches = Select-String -Path $file.FullName -Pattern $phrase -SimpleMatch -Encoding UTF8
+    foreach ($match in $matches) {
+        $filePath = $file.FullName.Replace("'", "''")
+        $line = $match.Line.Replace("'", "''")
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+
+#Insert crash file attributes into database
+$query = "INSERT INTO archive_940.dbo.cad_crash_log (FilePath, crash_log_line) VALUES (N'$filePath', N'$line')"
+
+    $sqlcmdArgs = @(
+        "-S",$sqlServer,
+        "-E" 
+        "-Q","`"$query`"",
+        "-b",
+        "-W",
+       "-t", "3"
+     )
+
+##Logging##
+#if INSERT of crash file attributes occurs, log name
+#if INSERT is blocked due to duplicate primary key or no INSERT is attempted
+    #do not log
+try {
+        $sql =  & sqlcmd @sqlcmdArgs      
+        $sqlText = $sql -join "`n"  # Join all lines
+        if($sqltext -notmatch "constraint")
+        {
+            $logTimestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            $logEntry = "$logTimestamp : $sql $filePath"
+            Add-Content -Path $logfile -Value $logEntry
+            Write-Host "Inserted match from: $filePath"
+        }
+
+
+        } catch {
+
+            Write-Warning "Failed to insert match for $filePath - $_"
+        }
+    }
+}
