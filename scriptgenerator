@@ -1,107 +1,148 @@
-ALTER PROCEDURE [dbo].[cad_schema_instance_value_comp] 
-	-- Add the parameters for the stored procedure here
-@tbl varchar(30),
-@instance1 varchar(30), @db1 varchar(30),
-@instance2 varchar(30), @db2 varchar(30)
+/*
+This SQL query produces a SQL query. It returns a text string that one copies and executes in SQL. 
+The produced query looks at a single table's schema (primary keys, indecies). It then unions the 
+two instances of the table (live & archive). It then uses window functions to compare compares 
+the values between the instances. The window function partitions depend on the table's primary keys. 
+*/
+
+CREATE PROCEDURE [dbo].[cad_schema_instance_value_comp] 
+@tbl varchar(30),                    -- Table name to compare
+@instance1 varchar(30), @db1 varchar(30), -- First SQL Server instance and database
+@instance2 varchar(30), @db2 varchar(30)  -- Second SQL Server instance and database
 AS
 BEGIN
+    SET NOCOUNT ON;
 
-	SET NOCOUNT ON;
+-- z: Fetch table metadata including the primary key and generate a base SELECT/UNION query
+WITH z AS (
+    SELECT
+        tablENAME tbl,
+        REPLACE(PRIMARY_KEY,'/',',') pk,             -- Replace slashes with commas in PK list
+        primary_key,
+        -- Compose a SELECT statement that unions both table instances
+        'SELECT 1 dbserver,* FROM ['+@instance1+'].'+@db1+'.[dbo].['+tablename+'] 
+         UNION 
+         SELECT 2,* FROM ['+@instance2+'].'+@db2+'.[dbo].['+tablename+'] 
+         ORDER BY '+REPLACE(primary_key,'/',',') AS slct_stmnt
+    FROM [dba].[live].[dbo].[cad_schema_tables]
+    WHERE tablename = @tbl
+),
 
-WITH  z AS(
-SELECT
-	tablENAME tbl
-	,REPLACE(PRIMARY_KEY,'/',',') pk
-	,primary_key
-	,'SELECT 1 dbserver,* FROM ['+@instance1+'].'+@db1+'.[dbo].['+tablename+'] UNION SELECT 2,* FROM ['+@instance2+'].'+@db2+'.[dbo].['+tablename+'] ORDER BY '+replace( primary_key ,'/',',') slct_stmnt
-FROM [elpdba].[live_940].[dbo].[cad_schema_tables]
-WHERE tablename = @tbl
+-- y: Analyze columns of the table and classify them as part of the PK or not
+y AS (
+    SELECT DISTINCT 
+        name+',' AS colmn,                                        -- Full column name with comma
+        CASE WHEN pk LIKE '%'+name+'%' THEN 1 ELSE 2 END AS typ, -- 1 if part of PK, 2 if not
+        pk,
+        name AS col_name,
+        CASE WHEN name LIKE '%dts' OR name IN ('cpers','upers','empid','cterm','uterm') 
+            THEN 99 END AS flagg,                                -- Flag "audit-style" columns
+        'x' AS allprim
+    FROM SYS.all_columns
+    LEFT JOIN z ON object_name(object_id) = z.tbl
+    WHERE object_name(object_id) = @tbl
+),
 
-), y AS( 
-	select distinct 
-		name+',' colmn 
-		,CASE WHEN pk like '%'+name+'%' THEN 1 ELSE 2 END typ 
-		,PK 
-		,name [col_name]
-		,CASE WHEN name like '%dts' or name in( 'cpers','upers','empid','cterm','uterm') THEN 99 END flagg
-		,'x' allprim
-	FROM SYS.all_columns
-		LEFT JOIN z ON object_name(object_id)= z.tbl
-	WHERE object_name(object_id)=@tbl
-
-), x AS( 
-SELECT 'WITH cte AS(' col1,null col2,-101 seg_num
-	UNION
-SELECT 'SELECT '''+@instance1+''' dbserver,* FROM ['+@instance1+'].['+@db1+'].[dbo].['+@tbl+'] UNION SELECT '''+@instance2+''' ,* FROM ['+@instance2+'].['+@db2+'].[dbo].['+@tbl+']  ',null,-99
-	UNION
-SELECT '), cnt AS( ',null,-98
-	UNION
-SELECT 'SELECT '+pk+' ,count(dbserver) cnt FROM cte GROUP BY '+z.pk ,null, -44 FROM z 
-	UNION 
-SELECT ')' ,null ,-33
-	UNION
-SELECT 'SELECT '''+primary_key+''' AS pk , cnt ,* ' col1 ,'' col2 ,1 seg_num FROM z
-	UNION
-SELECT 'FROM( ' ,null,2
-	UNION 
-SELECT 'SELECT' ,null,3
-	UNION
-SELECT '    dbserver, ','',4
-	UNION 
-SELECT '    z.'+colmn ,null,5 FROM y WHERE typ = 1
-	UNION
-SELECT '    z.'+colmn ,'lead( '+colmn+' 1) over(partition by '+pk+' order by dbserver ) AS lead_'+colmn ,6 FROM y WHERE typ = 2
-	UNION 
-SELECT 'FROM cte AS z' ,null,7
-	UNION
-SELECT ') AS z ' ,null ,8
-	UNION
-SELECT '  LEFT JOIN cnt ON' ,null,9
-	UNION	
-SELECT '     AND z.'+[col_name]+' = cnt.'+[col_name] ,null ,10 FROM y WHERE typ = 1
-	UNION 
-SELECT 'WHERE' ,null,11
-	UNION
-SELECT ' -  (dbserver ='''+@instance1+''' AND(' ,null, 12
-	UNION 
-SELECT '    OR '+[col_name]+' <> lead_'+[col_name] ,null,13  FROM y WHERE typ = 2 AND flagg is null
-	UNION 
-SELECT ')) OR ' ,null, 14
-	UNION
-SELECT 'cnt<>2' ,null,15
- 
-	UNION 
-SELECT 'ORDER BY '+'z.'+replace( pk ,', ',',z.' ),null,16 FROM z
-
-
+-- x: Build the segments of the final script as rows to be stitched together
+x AS (
+    -- Initial CTE wrapper
+    SELECT 'WITH cte AS(' AS col1, NULL AS col2, -101 AS seg_num
+    UNION
+    -- The UNION query between the two table instances
+    SELECT 
+        'SELECT '''+@instance1+''' dbserver,* FROM ['+@instance1+'].['+@db1+'].[dbo].['+@tbl+'] 
+         UNION 
+         SELECT '''+@instance2+''' ,* FROM ['+@instance2+'].['+@db2+'].[dbo].['+@tbl+']',
+        NULL, -99
+    UNION
+    -- Second CTE to count instances per PK
+    SELECT '), cnt AS(', NULL, -98
+    UNION
+    SELECT 'SELECT '+pk+', count(dbserver) cnt FROM cte GROUP BY '+z.pk, NULL, -44 FROM z
+    UNION
+    SELECT ')', NULL, -33
+    UNION
+    -- Begin main SELECT
+    SELECT 'SELECT '''+primary_key+''' AS pk, cnt, *', '', 1 FROM z
+    UNION
+    SELECT 'FROM(', NULL, 2
+    UNION
+    SELECT 'SELECT', NULL, 3
+    UNION
+    SELECT '    dbserver,', '', 4
+    -- Include primary key columns
+    UNION 
+    SELECT '    z.'+colmn, NULL, 5 FROM y WHERE typ = 1
+    -- For non-PK columns, include original + LEAD for comparison
+    UNION
+    SELECT 
+        '    z.'+colmn, 
+        'lead('+colmn+' 1) over(partition by '+pk+' order by dbserver) AS lead_'+colmn, 
+        6 
+    FROM y WHERE typ = 2
+    -- Final FROM and join with count CTE
+    UNION 
+    SELECT 'FROM cte AS z', NULL, 7
+    UNION
+    SELECT ') AS z', NULL, 8
+    UNION
+    SELECT '  LEFT JOIN cnt ON', NULL, 9
+    UNION
+    SELECT '     AND z.'+[col_name]+' = cnt.'+[col_name], NULL, 10 FROM y WHERE typ = 1
+    -- WHERE clause begins
+    UNION 
+    SELECT 'WHERE', NULL, 11
+    UNION
+    -- Begin comparison logic block
+    SELECT ' -  (dbserver ='''+@instance1+''' AND(', NULL, 12
+    -- Add comparison of values to their LEAD versions
+    UNION 
+    SELECT '    OR '+[col_name]+' <> lead_'+[col_name], NULL, 13 FROM y WHERE typ = 2 AND flagg IS NULL
+    UNION 
+    SELECT ')) OR ', NULL, 14
+    -- Capture unmatched rows (present in only one replica)
+    UNION
+    SELECT 'cnt<>2', NULL, 15
+    -- Final ORDER BY using PK
+    UNION 
+    SELECT 'ORDER BY z.'+REPLACE(pk,', ',' ,z.'), NULL, 16 FROM z
 )
+
+-- Compose final output SQL string from x
 SELECT 
-	concat(col1,' ',col2) script
-FROM(
-	SELECT
-		CASE 
-			WHEN seg_num in( 12,13,14 ) AND q.typ = 1 THEN null
-			when seg_num = 10 ANd row_number() over( partition by seg_num order by col1 ) =1 then REPLACE( col1,'     AND ','' )
-			WHEN seg_num =12 AND row_number() over( partition by seg_num order by col1 ) =1 then right(col1,len(col1)-2 ) 
-			WHEN seg_num = 13 and row_number() over( partition by seg_num order by col1 ) =1 THEN replace( col1 ,' OR ' ,'' )
-			when seg_num = 5 AND row_number() over( partition by seg_num order by col1 desc ) = 1 and q.typ = 1 THEN left( col1 ,len(col1)-1)
-			else col1
-		end col1
-		,CASE
-			WHEN seg_num = 6 and row_number() over( partition by seg_num order by col1 desc )= 1 THEN left(col2,len(col2)-1)
-			
-			ELSE col2
-		END col2
-		,seg_num
-		,row_number() over( partition by seg_num order by col1 ) rn
-		,row_number() over( partition by seg_num order by col1 desc ) rn_desc 
-	FROM x
-		LEFT JOIN( select max(typ) typ from y ) q ON q.typ is not null
-) 
-	AS z 
-WHERE len(concat(col1,' ',col2)) <> 0
-ORDER BY seg_num ,RN
- END
+    CONCAT(col1,' ',col2) AS script
+FROM (
+    SELECT
+        -- Handle cleanup & formatting logic for segments
+        CASE 
+            WHEN seg_num IN (12,13,14) AND q.typ = 1 THEN NULL
+            WHEN seg_num = 10 AND ROW_NUMBER() OVER(PARTITION BY seg_num ORDER BY col1) = 1 
+                THEN REPLACE(col1,'     AND ','')
+            WHEN seg_num = 12 AND ROW_NUMBER() OVER(PARTITION BY seg_num ORDER BY col1) = 1 
+                THEN RIGHT(col1, LEN(col1) - 2)
+            WHEN seg_num = 13 AND ROW_NUMBER() OVER(PARTITION BY seg_num ORDER BY col1) = 1 
+                THEN REPLACE(col1,' OR ','')
+            WHEN seg_num = 5 AND ROW_NUMBER() OVER(PARTITION BY seg_num ORDER BY col1 DESC) = 1 
+                AND q.typ = 1 THEN LEFT(col1, LEN(col1) - 1)
+            ELSE col1
+        END AS col1,
+        -- Same cleanup logic for col2
+        CASE
+            WHEN seg_num = 6 AND ROW_NUMBER() OVER(PARTITION BY seg_num ORDER BY col1 DESC) = 1 
+                THEN LEFT(col2, LEN(col2) - 1)
+            ELSE col2
+        END AS col2,
+        seg_num,
+        ROW_NUMBER() OVER(PARTITION BY seg_num ORDER BY col1) AS rn,
+        ROW_NUMBER() OVER(PARTITION BY seg_num ORDER BY col1 DESC) AS rn_desc 
+    FROM x
+    -- Join to get max(typ) to help with cleanup logic
+    LEFT JOIN (SELECT MAX(typ) AS typ FROM y) q ON q.typ IS NOT NULL
+) AS z 
+-- Remove empty lines
+WHERE LEN(CONCAT(col1,' ',col2)) <> 0
+-- Output in proper segment order
+ORDER BY seg_num, RN
+
+END
 GO
-
-
