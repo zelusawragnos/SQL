@@ -1,7 +1,9 @@
-/*
-	Provides the HEX value for a conditionally formatted rank of columnar values. Red equals lowest value; Green equals the hightest value.
-	To change red to highest and green to lowest, swap the column definition name R to G & column name G to R ( columns defined in INCREMENTER ).
+/*	
+	Assigns hexadecimal color value for dynamic conditional formatting
+	Color value determined by percentile rank of a given value
+	Query configured for red-green shift
 */
+
 WITH FilterFeeder AS(
 SELECT 
 	num_1
