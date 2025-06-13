@@ -1,1 +1,82 @@
-sbbehe
+/*
+	Provides the HEX value for a conditionally formatted rank of columnar values. Red equals lowest value; Green equals the hightest value.
+	To change red to highest and green to lowest, swap the column definition name R to G & column name G to R ( columns defined in INCREMENTER ).
+*/
+WITH FilterFeeder AS(
+SELECT 
+	num_1
+	,tycod
+	,datediff(second,dbo.ts_cadtoformat(cdts),dbo.ts_cadtoformat(ar_ts)) ranking_value
+FROM agency_event 
+WHERE ag_id = 'EPFD' AND cdts like '20250601%' AND ar_ts is not null
+	and datediff( second ,dbo.string_to_datetime2( cdts ) ,dbo.string_to_datetime2( ar_ts )) > 3
+
+), Incrementer AS( 
+SELECT 
+	num_1
+	,ranking_value
+	,percent_rank() over( order by ranking_value ) perccer
+	,cast( percent_rank() over( order by ranking_value )*510 as int ) incrementer
+	,CASE 
+		WHEN percent_rank() over( order by ranking_value ) <= .5 
+			THEN 255 
+		ELSE 255-( cast( percent_rank() over( order by ranking_value )*510 as int ) - 255 ) 
+	END g
+	,CASE 
+		WHEN percent_rank() over( order by ranking_value ) <= .5
+			THEN 0+cast( percent_rank() over( order by ranking_value )*510 as int ) 
+		ELSE 255 
+	END r
+	,0 b
+FROM FilterFeeder ae 
+
+)--, rgb AS(
+SELECT 
+	num_1
+	,ranking_value
+	,rgb
+	,concat( '"#' ,ltrim(rtrim( r1)) ,ltrim(rtrim( r2)) ,ltrim(rtrim( g1)) ,ltrim(rtrim( g2)) ,ltrim(rtrim( b )) ,'"' ) hex 
+FROM(
+SELECT 
+	num_1
+	,ranking_value
+	,concat( '( ',r ,',',g,',',b,' )' ) rgb
+	,CASE r/16
+		WHEN 10 THEN 'A'
+		WHEN 11 THEN 'B'
+		WHEN 12 THEN 'C'
+		WHEN 13 THEN 'D'
+		WHEN 14 THEN 'E'
+		WHEN 15 THEN 'F'
+		ELSE cast( r/16 as char )
+	END r1
+	,CASE 16*(( r/cast( 16 as decimal (7,3 )))-cast(( r/cast( 16 as decimal (7,3 ))) as int ))
+		WHEN 10 THEN 'A'
+		WHEN 11 THEN 'B'
+		WHEN 12 THEN 'C'
+		WHEN 13 THEN 'D'
+		WHEN 14 THEN 'E'
+		WHEN 15 THEN 'F'
+		ELSE cast( cast( 16*(( r/cast( 16 as decimal (7,3 )))-cast(( r/cast( 16 as decimal (7,3 ))) as int )) as int ) as char )
+	END r2
+	,CASE g/16
+		WHEN 10 THEN 'A'
+		WHEN 11 THEN 'B'
+		WHEN 12 THEN 'C'
+		WHEN 13 THEN 'D'
+		WHEN 14 THEN 'E'
+		WHEN 15 THEN 'F'
+		ELSE cast( g/16 as char )
+	END g1
+	,CASE 16*(( g/cast( 16 as decimal (7,3 )))-cast(( g/cast( 16 as decimal (7,3 ))) as int ))
+		WHEN 10 THEN 'A'
+		WHEN 11 THEN 'B'
+		WHEN 12 THEN 'C'
+		WHEN 13 THEN 'D'
+		WHEN 14 THEN 'E'
+		WHEN 15 THEN 'F'
+		ELSE cast( cast( 16*(( g/cast( 16 as decimal (7,3 )))-cast(( g/cast( 16 as decimal (7,3 ))) as int )) as int ) as char )
+	END g2
+	,'00' b
+FROM Incrementer
+) AS rgb
