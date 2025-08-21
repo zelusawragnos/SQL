@@ -1,0 +1,134 @@
+# Path to your copied report log 
+#$log = 'C:\rptgen.txt'
+$log = 'C:\Program Files (x86)\Intergraph\Licensing\19.00\Program\rptgen'
+$date = get-date -format "MM/dd"
+$date2 = get-date -format "yyyy/MM/dd"
+
+# Counter to know which line we’re on
+$index = 0
+
+# Search for lines that contain "netdispatcher" AND start with IN or OUT
+$matches = Get-Content $log | Where-Object {
+    ($_ -match '^(IN|OUT)\s') -and (($_ -match 'intergraph_dispatcher') -or ($_ -match 'intergraph_calltaker'))
+} | ForEach-Object{
+    $line = $_
+
+    $line = $line -replace 'IN 1', 'IN'
+    $line = $line -replace "9.42312 8", ""
+    $line = $line -replace "9.42312 ", ""
+
+
+# With:      <tok3> <tok2> <tok1> $placer$
+#$line = [regex]::Replace($line, '(\S+\s+\S+\s+\S+)\s+"ip=[^"]*"', '$1' )
+
+
+# Remove everything between $placer$ (or typo $palcer$) and the date (e.g., 08/21)
+#$pattern = '(\$(?:placer|palcer)\$)\s.*?(?=' + [regex]::Escape($date) + ')'
+#$line = [regex]::Replace($line, $pattern, '$1 ')
+
+# Optional: clean up any extra spaces
+#$line = $line -replace '\s{2,}', ' '
+
+#$line = $line -replace("$placer$","")
+#$line = $line -replace(" ","','")
+#$line = $line -replace("$date','","$date ")
+#
+
+# Insert ^^palceholder in place of the quoted IP field
+$tag = '^^palceholder'   # use your exact token
+
+$line = [regex]::Replace(
+    $line,
+    '^(.*?)\s+"ip=[^"]*"\s+(\S+)\s+(\S+)\s+(.*)$',
+    { param($m)
+        # $1 = prefix before "ip=..."
+        # $2 = first token after IP (e.g., 1)
+        # $3 = second token after IP (e.g., 24)
+        # $4 = rest of the line (e.g., 0 1405 1405 1140 "" "" "" 08/21 16:35:02)
+        "$($m.Groups[1].Value) $($m.Groups[2].Value) $($m.Groups[3].Value) $tag $($m.Groups[4].Value)"
+    }
+)
+
+# Remove ^^ … up to the date (keep the date). Also tidy extra spaces.
+$line = [regex]::Replace($line, '\s*\^\^.*?(?=' + [regex]::Escape($date) + ')', ' ')
+$line = $line -replace '\s{2,}', ' '
+
+
+# Optional: collapse any double spaces
+$line = $line -replace '\s{2,}', ' '
+
+
+# optional: collapse any double spaces created
+$line = $line -replace '\s{2,}', ' '
+
+$line = $line -replace(" ","','")
+$line = $line -replace("$date','","$date ")
+$line = $line -replace("$date", "$date2")
+$line = $line -replace(",'4'")
+$line = $line -replace(",'2'")
+$line = "SELECT 'ELPTEST','"+$line+"'"
+    # Add UNION at the beginning except first line
+    if ($index -gt 0) {
+        $line = "UNION " + $line
+    }
+
+    $index++
+
+   $line
+}
+
+# Show results in console
+$matches
+
+$1
+
+# Save to file
+$matches | Out-File C:\netdispatcher_inout.txt -Encoding utf8
+
+
+# ----- SQLCMD section -----
+$sqlServer = "server" 
+$database  = "db"
+$username  = "user"
+$password  = "password"
+
+# Your SELECT/UNION block as a single string
+$sqlBody = ($matches -join "`r`n")
+
+# Insert into a single NVARCHAR column called [rawline]
+# Make sure table dbo.license_usage has a column [rawline] NVARCHAR(MAX)
+$finalSql = @"
+SET NOCOUNT ON;
+
+INSERT INTO [dbo].[license_usage]
+$sqlBody
+;
+"@
+
+# Write SQL to file and execute with sqlcmd
+$sqlFile = 'C:\netdispatcher_insert.sql'
+$finalSql | Out-File $sqlFile -Encoding UTF8
+
+# Use SQL auth (as you had). For Windows auth, replace with: -E and remove -U/-P
+$sqlcmdArgs = @(
+    "-S", $sqlServer,
+    "-d", $database,
+    "-U", $username,
+    "-P", $password,
+    "-b",
+    "-W",
+    "-i", $sqlFile
+)
+
+Write-Host "Running sqlcmd with $sqlFile ..."
+try {
+    & sqlcmd @sqlcmdArgs
+    $exit = $LASTEXITCODE
+    if ($exit -ne 0) {
+        Write-Host "sqlcmd failed with exit code $exit."
+    } else {
+        Write-Host "sqlcmd completed successfully."
+    }
+} catch {
+    Write-Host "sqlcmd threw an exception: $($_.Exception.Message)"
+    }
