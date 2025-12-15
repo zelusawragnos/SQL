@@ -1,5 +1,9 @@
 DECLARE @t table(num_1 varchar(11))
+DECLARE @st varchar(14)
+DECLARE @et varchar(14)
 DECLARE @cmnt varchar(max)
+SET @st =dbo.ts_sqltocad(@starttime)
+SET @et =dbo.ts_sqltocad(@endtime)
 SET @cmnt = replace(replace(@comm,',  ',','),', ',',')
 ;
 
@@ -29,11 +33,9 @@ SELECT 'tycod' typ	,value FROM string_split(@tycod,',')
 SELECT distinct
 	ae.eid ,ae.num_1 ,l.EventLocation ,ae.dgroup ,ae.tycod ,ae.sub_tycod ,ae.priority 
 	,ae.sdts,ae.cdts,ae.ds_ts,ae.en_ts,ae.ar_ts,ae.tr_ts,ae.ta_ts,ae.xdts--,cmnts
-FROM [dbo].[agency_rpttyp_num1](@reporttype,@ag_id, --tvf applies agency call-sfor-service business logic 
-	cast(datepart(year,@starttime) as varchar)      +right(concat('0',datepart(month,@starttime) ),2)      +right(concat('0',datepart(day,@starttime) )  ,2)      +right(concat('0',datepart(hour,@starttime) )  ,2)      +right(concat('0',datepart(minute,@starttime) ),2)      +right(concat('0',datepart(second,@starttime) ),2) 
-	,cast(datepart(year,@endtime) as varchar)      +right(concat('0',datepart(month,@endtime) ),2)      +right(concat('0',datepart(day,@endtime) )  ,2)      +right(concat('0',datepart(hour,@endtime) )  ,2)      +right(concat('0',datepart(minute,@endtime) ),2)      +right(concat('0',datepart(second,@endtime) ),2) 
-) 
-	AS t
+FROM [dbo].[agency_rpttyp_num1](@reporttype,@ag_id,/*dbo.ts_sqltocad(@starttime),dbo.ts_sqltocad(@endtime)*/@st,@et) t --tvf applies agency call-sfor-service business logic 
+--cast(datepart(year,@starttime) as varchar)      +right(concat('0',datepart(month,@starttime) ),2)      +right(concat('0',datepart(day,@starttime) )  ,2)      +right(concat('0',datepart(hour,@starttime) )  ,2)      +right(concat('0',datepart(minute,@starttime) ),2)      +right(concat('0',datepart(second,@starttime) ),2) 
+--,cast(datepart(year,@endtime) as varchar)      +right(concat('0',datepart(month,@endtime) ),2)      +right(concat('0',datepart(day,@endtime) )  ,2)      +right(concat('0',datepart(hour,@endtime) )  ,2)      +right(concat('0',datepart(minute,@endtime) ),2)      +right(concat('0',datepart(second,@endtime) ),2) )as t	
 	INNER JOIN agency_event ae ON t.num_1 = ae.num_1      
 	LEFT JOIN EventLocation l ON ae.eid = l.eid
 	LEFT JOIN un_hi u ON ae.num_1 = u.num_1 
@@ -145,6 +147,7 @@ SELECT
 	,dbo.dur_cadhhmmss(ae.ds_ts,ae.ar_ts)	AS dispatch_to_arrival	
 	,dbo.dur_cadhhmmss(ae.ar_ts,ae.xdts )	AS arrival_to_close		
 	,null AS unit	/*if @Showunittimes = 'Y' UNION query will call unit/dispatcher/officer tables*/
+	,null AS disp	/*if @Showunittimes = 'Y' UNION query will call unit/dispatcher/officer tables*/
 	,cn AS cn		
 	,cmnts
 	,null ofcr		/*if @Showunittimes = 'Y' UNION query will call unit/dispatcher/officer tables*/
@@ -191,6 +194,7 @@ SELECT
 	,dbo.dur_cadhhmmss([dp],[s]) 
 	,dbo.dur_cadhhmmss([s],[a]) 
 	,unit.unid
+	,null disp
 	,cn
 	,cmnts
 	,empid ofcr
@@ -212,5 +216,3 @@ FROM eventsearch z
 			GROUP BY num_1 ,unid ,[dp],[en],[s],[tr],[ta],coalesce([a],[am])
 	) unit
 ORDER BY typ ,cdts	
-
-
