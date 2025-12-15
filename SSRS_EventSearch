@@ -33,10 +33,12 @@ SELECT 'tycod' typ	,value FROM string_split(@tycod,',')
 SELECT distinct
 	ae.eid ,ae.num_1 ,l.EventLocation ,ae.dgroup ,ae.tycod ,ae.sub_tycod ,ae.priority 
 	,ae.sdts,ae.cdts,ae.ds_ts,ae.en_ts,ae.ar_ts,ae.tr_ts,ae.ta_ts,ae.xdts--,cmnts
-FROM [dbo].[agency_rpttyp_num1](@reporttype,@ag_id,/*dbo.ts_sqltocad(@starttime),dbo.ts_sqltocad(@endtime)*/@st,@et) t --tvf applies agency call-sfor-service business logic 
+FROM [dbo].[agency_rpttyp_num1](@reporttype,@ag_id,@st,@et) t --tvf applies agency call-sfor-service business logic 
+
 --cast(datepart(year,@starttime) as varchar)      +right(concat('0',datepart(month,@starttime) ),2)      +right(concat('0',datepart(day,@starttime) )  ,2)      +right(concat('0',datepart(hour,@starttime) )  ,2)      +right(concat('0',datepart(minute,@starttime) ),2)      +right(concat('0',datepart(second,@starttime) ),2) 
 --,cast(datepart(year,@endtime) as varchar)      +right(concat('0',datepart(month,@endtime) ),2)      +right(concat('0',datepart(day,@endtime) )  ,2)      +right(concat('0',datepart(hour,@endtime) )  ,2)      +right(concat('0',datepart(minute,@endtime) ),2)      +right(concat('0',datepart(second,@endtime) ),2) )as t	
-	INNER JOIN agency_event ae ON t.num_1 = ae.num_1      
+
+INNER JOIN agency_event ae ON t.num_1 = ae.num_1      
 	LEFT JOIN EventLocation l ON ae.eid = l.eid
 	LEFT JOIN un_hi u ON ae.num_1 = u.num_1 
 	LEFT JOIN un_hi_persl uhp ON @ofc is not null AND uhp.un_hi_child_change_id = u.un_hi_child_change_id 
