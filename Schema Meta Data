@@ -1,0 +1,83 @@
+WITH t AS(
+SELECT
+	CASE WHEN compc.name IS NOT NULL THEN 1  END computed_column
+	,ccu.CONSTRAINT_NAME
+	,tc.CONSTRAINT_TYPE
+	,CHECK_CLAUSE
+	,t.object_id
+	,c.TABLE_CATALOG
+	,c.TABLE_NAME
+	,c.COLUMN_NAME
+	,c.ORDINAL_POSITION
+	,c.IS_NULLABLE
+	,c.DATA_TYPE
+	,c.CHARACTER_MAXIMUM_LENGTH
+	,c.COLLATION_NAME
+	,sc.column_id
+FROM INFORMATION_SCHEMA.COLUMNS c
+	INNER JOIN sys.tables t ON c.TABLE_NAME = t.name AND t.type = 'u'
+	LEFT JOIN INFORMATION_SCHEMA.CONSTRAINT_COLUMN_USAGE ccu ON c.COLUMN_NAME = ccu.COLUMN_NAME and ccu.TABLE_NAME = c.TABLE_NAME
+	LEFT JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc ON tc.CONSTRAINT_NAME = ccu.CONSTRAINT_NAME
+	LEFT JOin INFORMATION_SCHEMA.CHECK_CONSTRAINTS cc ON cc.CONSTRAINT_NAME = ccu.CONSTRAINT_NAME
+	LEFT JOIN sys.columns sc ON c.COLUMN_NAME = sc.name AND c.table_name = object_name(sc.object_id)
+	LEFT JOIN sys.computed_columns AS compc ON sc.name = compc.name AND c.TABLE_NAME = object_name(compc.object_id)
+WHERE c.TABLE_SCHEMA = 'dbo'
+
+), constraint_name AS(
+SELECT TABLE_NAME, COLUMN_NAME ,string_agg(constraint_name ,' / ') within group(order by constraint_name) constraint_name
+FROM(SELECT distinct TABLE_NAME ,COLUMN_NAME ,constraint_name FROM t where CONSTRAINT_TYPE = 'check') Z
+GROUP BY TABLE_NAME ,COLUMN_NAME
+
+), check_clause AS(
+SELECT TABLE_NAME, COLUMN_NAME ,CONSTRAINT_NAME ,string_agg(check_clause ,' / ') within group(order by constraint_name) check_clause
+FROM(SELECT distinct TABLE_NAME ,COLUMN_NAME ,constraint_name ,CHECK_CLAUSE FROM t where CONSTRAINT_TYPE = 'check') Z
+GROUP BY TABLE_NAME ,COLUMN_NAME ,CONSTRAINT_NAME
+)
+SELECT 
+	t.object_id					tbl_object_id
+	,t.column_id				column_object_id
+	,t.TABLE_NAME
+	,t.COLUMN_NAME
+	,t.ORDINAL_POSITION
+	,t.DATA_TYPE
+	,t.CHARACTER_MAXIMUM_LENGTH
+	,case when pk.table_name is not null THEN 1 END primary_key
+	,case when uq.table_name is not null THEN 1 END unique_column
+	,case when t.IS_NULLABLE = 'yes' then 1		END nullable
+	,t.computed_column
+	,cn.constraint_name
+	,cc.check_clause
+	,idx.index_name
+FROM(
+	select distinct 
+		t.object_id					
+		,t.column_id				
+		,t.TABLE_NAME
+		,t.COLUMN_NAME
+		,t.ORDINAL_POSITION
+		,t.DATA_TYPE
+		,t.CHARACTER_MAXIMUM_LENGTH
+		,t.IS_NULLABLE
+		,t.computed_column
+	from t
+)
+	AS t
+	LEFT JOIN constraint_name cn ON t.TABLE_NAME = cn.TABLE_NAME AND t.COLUMN_NAME = cn.COLUMN_NAME
+	LEFT JOIN check_clause cc ON t.TABLE_NAME = cc.TABLE_NAME AND t.COLUMN_NAME = cc.COLUMN_NAME
+	LEFT JOIN t pk ON t.TABLE_NAME = pk.TABLE_NAME AND t.COLUMN_NAME = pk.COLUMN_NAME AND pk.CONSTRAINT_TYPE = 'primary key'
+	LEFT JOIN t uq ON t.TABLE_NAME = uq.TABLE_NAME AND t.COLUMN_NAME = uq.COLUMN_NAME AND uq.CONSTRAINT_TYPE = 'unique'
+	LEFT JOIN(
+			select object_name(idx.object_id) tbl ,c.name col ,string_agg(idx.name,' / ') index_name
+			from sys.indexes idx
+				left join SYS.index_columns idxc ON idx.object_id = idxc.object_id AND idx.index_id = idxc.index_id
+				left join sys.tables t ON t.name =object_name(idx.object_id)
+				left join sys.columns c ON object_name(c.object_id) = t.name AND c.column_id = idxc.column_id
+			where t.type = 'u'
+			group by object_name(idx.object_id),c.name	
+	)
+		AS idx ON t.TABLE_NAME = idx.tbl AND t.COLUMN_NAME = idx.col
+
+
+
+
+	
