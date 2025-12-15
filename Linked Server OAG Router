@@ -1,0 +1,28 @@
+
+DECLARE @b_healthy VARCHAR(10)
+
+/*Query replica state of 'B' replica*/
+SELECT @b_healthy = db
+FROM(
+	SELECT
+		CASE WHEN connected_state_desc = 'connected' THEN 'DBB' END db ,connected_state_desc
+	FROM [LNK_LIVEDB].[LIVE].sys.dm_hadr_availability_replica_states z
+		LEFT JOIN  [LNK_LIVEDB].[LIVE].sys.availability_replicas y ON z.replica_id = y.replica_id
+	WHERE replica_server_name = 'dbb'
+) z
+
+/*If B is healthy, then query read-replica. If B replica is not healthy, query availability group*/
+IF @b_healthy = 'elpdbb' 
+SELECT *
+FROM OPENROWSET(
+    'SQLNCLI11',  
+    'Server=dbb;Uid=dbreader;Database=live;ApplicationIntent=ReadOnly;',
+    'SELECT * FROM event'
+)
+
+	ELSE 
+SELECT * FROM [LNK_AVGROUP].[LIVE].[dbo].[event] ---- (group_id)
+
+
+END
+GO
