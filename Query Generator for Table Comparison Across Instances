@@ -24,7 +24,7 @@ WITH z AS (
          UNION 
          SELECT 2,* FROM ['+@instance2+'].'+@db2+'.[dbo].['+tablename+'] 
          ORDER BY '+REPLACE(primary_key,'/',',') AS slct_stmnt
-    FROM [dba].[live].[dbo].[cad_schema_tables]
+    FROM [dbo].[live].[dbo].[cad_schema_tables]
     WHERE tablename = @tbl
 ),
 
@@ -38,7 +38,7 @@ y AS (
         CASE WHEN name LIKE '%dts' OR name IN ('cpers','upers','empid','cterm','uterm') 
             THEN 99 END AS flagg,                                -- Flag "audit-style" columns
         'x' AS allprim
-    FROM SYS.all_columns
+    FROM sys.all_columns
     LEFT JOIN z ON object_name(object_id) = z.tbl
     WHERE object_name(object_id) = @tbl
 ),
