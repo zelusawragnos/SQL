@@ -19,9 +19,9 @@ FROM(
 		,us_rn
 		,u.cdts
 		,CASE WHEN u.unit_status in('a','am') THEN lag(u.unit_status,1)over(partition by u.unid, u.num_1 order by u.cdts) END l_us
-	FROM un_hi u 
+	FROM unit_history u 
 		INNER JOIN us_rn uu ON u.unit_status = uu.us
-		INNER JOIN agency_event ae ON u.num_1 = ae.num_1 
+		INNER JOIN event ae ON u.num_1 = ae.num_1 
 	WHERE @ag_id = u.ag_id
 		AND left(u.cdts,14) BETWEEN left(@s,14) AND left(@e,14)
 		AND unit_status not in('uc','ue','uv','~','cu','dc','ut') 
