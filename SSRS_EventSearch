@@ -38,12 +38,12 @@ FROM [dbo].[agency_rpttyp_num1](@reporttype,@ag_id,@st,@et) t --tvf applies agen
 --cast(datepart(year,@starttime) as varchar)      +right(concat('0',datepart(month,@starttime) ),2)      +right(concat('0',datepart(day,@starttime) )  ,2)      +right(concat('0',datepart(hour,@starttime) )  ,2)      +right(concat('0',datepart(minute,@starttime) ),2)      +right(concat('0',datepart(second,@starttime) ),2) 
 --,cast(datepart(year,@endtime) as varchar)      +right(concat('0',datepart(month,@endtime) ),2)      +right(concat('0',datepart(day,@endtime) )  ,2)      +right(concat('0',datepart(hour,@endtime) )  ,2)      +right(concat('0',datepart(minute,@endtime) ),2)      +right(concat('0',datepart(second,@endtime) ),2) )as t	
 
-INNER JOIN agency_event ae ON t.num_1 = ae.num_1      
+INNER JOIN event ae ON t.num_1 = ae.num_1      
 	LEFT JOIN EventLocation l ON ae.eid = l.eid
-	LEFT JOIN un_hi u ON ae.num_1 = u.num_1 
-	LEFT JOIN un_hi_persl uhp ON @ofc is not null AND uhp.un_hi_child_change_id = u.un_hi_child_change_id 
-	LEFT JOIN case_num cn ON ae.num_1 = cn.num_1
-	LEFT JOIN common_event_call cec ON ae.eid = cec.eid
+	LEFT JOIN unit_hist u ON ae.num_1 = u.num_1 
+	LEFT JOIN unit_hist_personnel uhp ON @ofc is not null AND uhp.un_hi_child_change_id = u.un_hi_child_change_id 
+	LEFT JOIN casenum cn ON ae.num_1 = cn.num_1
+	LEFT JOIN event_call cec ON ae.eid = cec.eid
 	INNER JOIN multi_param AS tycod		ON tycod.typ ='tycod'		AND ae.tycod = tycod.value
 	INNER JOIN multi_param AS subty		ON subty.typ ='sub_tycod'	AND ae.sub_tycod = subty.value
 	INNER JOIN multi_param AS unityp	ON unityp.typ ='unityp'		AND u.unityp = unityp.value 
@@ -76,7 +76,7 @@ SELECT eid.eid ,cmnts
 FROM(
 	SELECT distinct eid.eid 
 	FROM(select distinct eid from ae) AS eid 
-		LEFT JOIN evcom c ON eid.eid = c.eid
+		LEFT JOIN event_remarks c ON eid.eid = c.eid
 		LEFT JOIN multi_param cmnt ON cmnt.typ ='cmnt' AND(c.comm like cmnt.value or cmnt.value='')
 	WHERE 
 		(@showcmnts = 'Y' and @comm is null)
@@ -97,7 +97,7 @@ FROM(
 			SELECT 
 				eid.eid 
 				,string_agg(comm,'/') cmnts
-			FROM evcom  evc
+			FROM event_remarks  evc
 				LEFT JOIN multi_param  
 					AS cmnt ON cmnt.typ ='cmnt' AND evc.comm like '%'+cmnt.value+'%'
 						AND(
@@ -156,10 +156,10 @@ SELECT
 	,d.d dispo
 FROM ae
 	LEFT JOIN evc ON ae.eid	= evc.eid
-	OUTER APPLY(select num_1 ,string_agg(dispo, char(10)) d from(select distinct num_1 ,dispo from ev_dispo d where d.num_1 = ae.num_1) d group by num_1) AS d
+	OUTER APPLY(select num_1 ,string_agg(dispo, char(10)) d from(select distinct num_1 ,dispo from disposition d where d.num_1 = ae.num_1) d group by num_1) AS d
 	OUTER APPLY(
 			select cn.num_1 ,string_agg(cn.case_num,'/') cn
-			from case_num cn
+			from casenum cn
 			WHERE ae.num_1 = cn.num_1
 			group by num_1
 	)
@@ -207,13 +207,13 @@ FROM eventsearch z
 			FROM(
 				select z.num_1,u.unid,u.unit_status,min(u.cdts) ts ,min(u.un_hi_child_change_id) childchange
 				from eventsearch z
-					left join un_hi u ON z.num_1 = u.num_1
+					left join unit_history u ON z.num_1 = u.num_1
 				where coalesce(u.unit_status,'dp') in('dp','e','s','tr','ta','a','am') AND @unittimes ='y'
 				group by z.num_1 ,u.unid ,u.unit_status
 			)
 			AS z
 				PIVOT(max(ts) for unit_status in([dp],[en],[s],[tr],[ta],[a],[am])) AS pvt
-				LEFT JOIN un_hi_persl uhp ON uhp.un_hi_child_change_id = pvt.childchange
+				LEFT JOIN unit_hist_personnel uhp ON uhp.un_hi_child_change_id = pvt.childchange
 			WHERE pvt.num_1 = z.num_1
 			GROUP BY num_1 ,unid ,[dp],[en],[s],[tr],[ta],coalesce([a],[am])
 	) unit
