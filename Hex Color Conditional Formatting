@@ -9,8 +9,8 @@ SELECT
 	num_1
 	,tycod
 	,datediff(second,dbo.ts_cadtoformat(cdts),dbo.ts_cadtoformat(ar_ts)) ranking_value
-FROM agency_event 
-WHERE ag_id = 'EPFD' AND cdts like '20250601%' AND ar_ts is not null
+FROM ae 
+WHERE ag_id = 'fd' AND cdts like '20250601%' AND ar_ts is not null
 	and datediff( second ,dbo.string_to_datetime2( cdts ) ,dbo.string_to_datetime2( ar_ts )) > 3
 
 ), Incrementer AS( 
