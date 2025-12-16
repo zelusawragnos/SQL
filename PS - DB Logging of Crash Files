@@ -8,7 +8,7 @@ $sqlServer = "archive"
 $database = "archivedb"
 
 # Query database for client terminal names
-$logserverquery = "SELECT term FROM term WHERE try_cast(right(term,1) as int) is not null AND left(term,3) not in('xdr','wrm')"
+$logserverquery = "SELECT term FROM terminals WHERE try_cast(right(term,1) as int) is not null AND left(term,3) not in('xdr','wrm')"
 $logServers = @()
 
 #Log execution of scheduled task
@@ -54,7 +54,7 @@ foreach ($file in $ipslog) {
         $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
 #Insert crash file attributes into database
-$query = "INSERT INTO archive_940.dbo.cad_crash_log (FilePath, crash_log_line) VALUES (N'$filePath', N'$line')"
+$query = "INSERT INTO archivedb.dbo.cad_crash_log (FilePath, crash_log_line) VALUES (N'$filePath', N'$line')"
 
     $sqlcmdArgs = @(
         "-S",$sqlServer,
