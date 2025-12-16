@@ -12,11 +12,11 @@ FROM(
 ) z
 
 /*If B is healthy, then query read-replica. If B replica is not healthy, query availability group*/
-IF @b_healthy = 'elpdbb' 
+IF @b_healthy = 'dbb' 
 SELECT *
 FROM OPENROWSET(
     'SQLNCLI11',  
-    'Server=dbb;Uid=dbreader;Database=live;ApplicationIntent=ReadOnly;',
+    'Server=dbb;Uid=db_login;Database=live;ApplicationIntent=ReadOnly;',
     'SELECT * FROM event'
 )
 
