@@ -2,16 +2,16 @@ $now = Get-Date
 $date = $now.tostring("yyyy-MM-dd") 
 
 # Output file path 
-$outputFile = "C:\MaintenanceBats\EPFD_AVL\EPFDUnitStatus"
+$outputFile = "C:\MaintenanceBats\FD_AVL\FDUnitStatus"
 
 
 #Log file 
-$logfolder = "C:\MaintenanceBats\EPFD_AVL\Logs"
-$logname = "epfd_avl_log"
+$logfolder = "C:\MaintenanceBats\FD_AVL\Logs"
+$logname = "fd_avl_log"
 $time = get-date -format "hh:mm"
 $logname = "$logfolder\"+"$logname"
 $outputarchive = "C:\MaintenanceBats\AVL\Logs\outputcopy"
-$logname_pattern = "epfd_avl*"
+$logname_pattern = "fd_avl*"
 
 #database connection & query
 $db_aog = @("dbaol")
