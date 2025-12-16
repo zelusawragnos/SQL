@@ -1,0 +1,81 @@
+WITH ev_ty AS(
+/*Split multi-parameter by comma*/
+SELECT et.ag_id ,et.tycod ,et.sub_tycod
+FROM event_type et 
+	INNER JOIN(select * from string_split(@subtycod,',')) sy on sy.value = concat(et.tycod,' '+et.sub_tycod)
+WHERE ag_id = @ag_id
+
+)
+/*
+	Return count event type provided by paramater
+	Return count of event types & sub-types in def table
+*/
+, cnt as(
+SELECT ev_ty.ag_id ,ev_ty.tycod ,count(ev_ty.tycod) param_cnt ,max(cnt) tycod_cnt ,max(all_cnt) all_cnt
+FROM ev_ty 
+	CROSS APPLY(select ag_id ,tycod ,count(tycod) cnt	from event_type		z where z.ag_id = ev_ty.ag_id and z.tycod = ev_ty.tycod group by ag_id ,tycod	)AS et 
+	CROSS APPLY(select ag_id ,count(AG_ID) all_cnt		from event_type		z where z.ag_id = ev_ty.ag_id  group by ag_id									)AS ag_cnt
+GROUP BY ev_ty.ag_id ,ev_ty.tycod
+
+), tycod_agg AS(
+/*
+	If all event types are included in parameters, return 'ALL'
+	If all sub-types within an event type are included in paramter, return event type
+	If a sub-set if sub-types are icluded in parameter, return event-type & all sub-types concatenated
+*/
+SELECT tyc eventtype ,row_number()over(order by tyc) rn
+FROM(
+	select concat(ev_ty.tycod ,': ' ,string_agg(sub_tycod,' ') within group(order by sub_tycod)) tyc
+	from ev_ty
+		left join cnt on ev_ty.tycod = cnt.tycod
+	where param_cnt<>tycod_cnt
+	group by ev_ty.tycod
+		union all
+	select distinct 
+		'ALL'
+	from cnt
+	where all_cnt=param_cnt
+		union all
+	select distinct 
+		case when all_cnt = param_cnt THEN 'ALL' ELSE ev_ty.tycod END tycod
+	from ev_ty
+		left join cnt on ev_ty.tycod = cnt.tycod
+	where param_cnt = tycod_cnt AND all_cnt <> param_cnt
+)
+	AS z
+
+),maxrn as(
+select max(rn)+14 rn
+from tycod_agg
+
+)
+/*Return report declarations as table*/
+SELECT 1 rn		,'1. Report Type:' title	,null subheader UNION
+SELECT 2		,null						,'Calls-for-Service: events with phone event-source, valid event-type, valid dispo & valid response timestamps' UNION
+SELECT 6		,null						,'CAD All: excludes TEST event-type & TEST disposition'			UNION
+SELECT 7		,'2. Parameters:'			,null															UNION
+SELECT 8		,null						,concat('Agency: ',@ag_id				)						UNION			
+SELECT 9		,null						,concat('Starttime: ',dbo.ts_sqltoformat(@starttime))			UNION		
+SELECT 10		,null						,concat('Endtime: ',dbo.ts_sqltoformat(@endtime))				UNION	
+SELECT 11		,null						,concat('Report type: ',@reporttype		)						UNION		
+SELECT 12		,null						,concat('Show unit times: ',@unittimes	)						UNION		
+SELECT 13		,null						,concat('Comments: ',@comm				)						UNION		
+SELECT 14		,null						,concat('Show comments: ',@showcmnts	)						UNION		
+SELECT 15		,null						,'Event type:'													UNION		
+SELECT 15+rn	,null						,concat('   ',eventtype					) FROM tycod_agg		UNION				
+SELECT 17+rn	,null						,concat('Dgroup: ',@dgroup				) FROM maxrn			UNION		
+SELECT 18+rn	,null						,concat('Muni: ',@muni 					) FROM maxrn			UNION		
+SELECT 19+rn	,null						,concat('Xstreet1: ',@xstreet1			) FROM maxrn			UNION		
+SELECT 20+rn	,null						,concat('Xstreet2: ',@xstreet2			) FROM maxrn			UNION		
+SELECT 22+rn	,null						,concat('Apt: ',@apt 					) FROM maxrn			UNION		
+SELECT 23+rn	,null						,concat('Num_1: ',@num_1 				) FROM maxrn			UNION		
+SELECT 24+rn	,null						,concat('Casenum: ',@casenum			) FROM maxrn			UNION	
+SELECT 25+rn	,null						,concat('Unit: ',@unit 					) FROM maxrn			UNION		
+SELECT 26+rn	,null						,concat('Officer: ',@ofc				) FROM maxrn			UNION	
+SELECT 27+rn	,null						,concat('Dispatcher: ',@disp			) FROM maxrn			UNION		
+SELECT 28+rn	,null						,concat('Calltaker: ',@ct 				) FROM maxrn			UNION	
+SELECT 29+rn	,null						,concat('Caller#: ',@clrnum 			) FROM maxrn			UNION	
+SELECT 30+rn	,null						,concat('Street#: ',@estnum				) FROM maxrn			UNION		
+SELECT 31+rn	,null						,concat('Street name: ',@efeanme 		) FROM maxrn			UNION		
+SELECT 32+rn	,null						,concat('Directon prefix: ',@dir_pre	) FROM maxrn			UNION	
+SELECT 33+rn	,null						,concat('Direction suffix: ',@dir_suf 	) FROM maxrn 
