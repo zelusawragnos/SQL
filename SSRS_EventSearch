@@ -1,19 +1,10 @@
-DECLARE @t table(num_1 varchar(11))
-DECLARE @st varchar(14)
-DECLARE @et varchar(14)
-DECLARE @cmnt varchar(max)
-SET @st =dbo.ts_sqltocad(@starttime)
-SET @et =dbo.ts_sqltocad(@endtime)
-SET @cmnt = replace(replace(@comm,',  ',','),', ',',')
-;
 
 WITH multi_param AS(
 /*split multi-valued parameters; parse text-input paramters. 
 null param
 */
 --lookup parameters
-SELECT 'tycod' typ	,value FROM string_split(@tycod,',')			
-	UNION SELECT 'sub_tycod',value			FROM string_split(@subtycod,',')	
+SELECT 'sub_tycod' typ ,value FROM string_split(@subtycod,',')				
 	UNION SELECT 'ag_id'	,value			FROM string_split(@ag_id,',')			
 	UNION SELECT 'beat'		,value			FROM string_split(@esz,',')						
 	UNION SELECT 'dgroup'	,value			FROM string_split(@dgroup,',') z inner join agency_dgroup ad ON ad.ag_id=@ag_id and ad.dgroup=z.value						
@@ -23,7 +14,6 @@ SELECT 'tycod' typ	,value FROM string_split(@tycod,',')
 	UNION SELECT 'ofc'		,value			FROM string_split(replace(coalesce(@ofc		,''),' ',''),',') 
 	UNION SELECT 'casenum'	,value			FROM string_split(replace(coalesce(@casenum	,''),' ',''),',') 
 	UNION SELECT 'disp'		,value			FROM string_split(replace(coalesce(@disp	,''),' ',''),',')
-	UNION SELECT 'ct'		,value			FROM string_split(replace(coalesce(@ct		,''),' ',''),',') 
 	UNION SELECT 'clrnum'	,value			FROM string_split(replace(coalesce(@clrnum	,''),' ',''),',')
 	UNION SELECT 'num_1'	,value			FROM string_split(replace(coalesce(@num_1	,''),' ',''),',')	
 	UNION SELECT 'unit'		,value			FROM string_split(replace(coalesce(@unit	,''),' ',''),',') 
@@ -31,53 +21,112 @@ SELECT 'tycod' typ	,value FROM string_split(@tycod,',')
 ), ae AS( 
 /*agency events filtered by parameters */
 SELECT distinct
-	ae.eid ,ae.num_1 ,l.EventLocation ,ae.dgroup ,ae.tycod ,ae.sub_tycod ,ae.priority 
-	,ae.sdts,ae.cdts,ae.ds_ts,ae.en_ts,ae.ar_ts,ae.tr_ts,ae.ta_ts,ae.xdts--,cmnts
-FROM [dbo].[agency_rpttyp_num1](@reporttype,@ag_id,@st,@et) t --tvf applies agency call-sfor-service business logic 
+	ae.event_id ,ae.num_1 ,l.EventLocation ,ae.esz ,ae.dgroup ,ae.tycod ,ae.sub_tycod ,ae.priority ,unit_detail ,disp
+	,ae.sdts,ae.cdts,ae.ds_ts,ae.en_ts,ae.ar_ts,ae.tr_ts,ae.ta_ts,ae.xdts
+	,ssec
+	,ds_sec
+	,ar_sec
+	,tr_sec
+	,ta_sec
+	,xsec
+	,cn.case_num
+	,cec.clrnum 
+FROM [dbo].[agency_rpttyp_num1](@reporttype,@ag_id,@st,@et) t --tvf applies agency calls-for-service business logic 
+	INNER JOIN evemt 	 	 AS ae		ON t.num_1 = ae.num_1      
+	INNER JOIN EventLocation AS l		ON ae.eid = l.eid
+	INNER JOIN multi_param   AS num_1	ON num_1.typ	='num_1'		AND(ae.num_1 = num_1.value or num_1.value = '')
+	INNER JOIN multi_param   AS drg		ON drg.typ		='dgroup'		AND ae.dgroup = drg.value 
+	INNER JOIN multi_param   AS subty	ON subty.typ	='sub_tycod'	AND concat(ae.tycod,' '+ae.sub_tycod) = subty.value
+	INNER JOIN multi_param   AS esz		ON esz.typ		='beat'			AND(ae.lev3=esz.value or coalesce(esz.value,'(forced)')='(forced)')
+	INNER JOIN multi_param   AS unit	ON unit.typ		='unit'			
+	INNER JOIN multi_param   AS ofc		ON ofc.typ		='ofc'	
+	INNER JOIN multi_param   AS unityp	ON unityp.typ	='unityp'		
+	INNER JOIN multi_param   AS disp	ON disp.typ		='disp'			
+	OUTER APPLY(
+			select 
+				num_1 
+				,case 
+					when @unityp not like '%,%' then string_agg(concat(unid,':'+dofd),char(10)) 
+					else string_agg(concat(unid+' ('+unityp+')',':'+dofd),char(10)) 
+				end unit_detail
+			from(
+				select num_1 ,unid ,unityp ,string_agg(empid,' / ') dofd
+				from(
+					select distinct u.num_1 ,u.unid ,empid ,unityp
+						,DISP.VALUE
+						from unit_hist u 
+							left join unit_persl uhp on @ofc is not null and u.un_hi_child_change_id = uhp.un_hi_child_change_id
+						where ae.num_1 = u.num_1 
+							AND(@unit is not null OR @unityp <> '(all)' or @ofc is not null or @disp is not null) 
+							AND(
+								unit.value in(u.unid,'')
+								and ofc.value in('',uhp.empid)
+								and disp.value in(cast(u.cpers as varchar),'')
+								and unityp.value in(u.unityp,'(all)') 
+							)
+				)
+					as z
+				group by num_1 ,unid ,unityp
+			)
+				as u
+			group by num_1
 
---cast(datepart(year,@starttime) as varchar)      +right(concat('0',datepart(month,@starttime) ),2)      +right(concat('0',datepart(day,@starttime) )  ,2)      +right(concat('0',datepart(hour,@starttime) )  ,2)      +right(concat('0',datepart(minute,@starttime) ),2)      +right(concat('0',datepart(second,@starttime) ),2) 
---,cast(datepart(year,@endtime) as varchar)      +right(concat('0',datepart(month,@endtime) ),2)      +right(concat('0',datepart(day,@endtime) )  ,2)      +right(concat('0',datepart(hour,@endtime) )  ,2)      +right(concat('0',datepart(minute,@endtime) ),2)      +right(concat('0',datepart(second,@endtime) ),2) )as t	
-
-INNER JOIN event ae ON t.num_1 = ae.num_1      
-	LEFT JOIN EventLocation l ON ae.eid = l.eid
-	LEFT JOIN unit_hist u ON ae.num_1 = u.num_1 
-	LEFT JOIN unit_hist_personnel uhp ON @ofc is not null AND uhp.un_hi_child_change_id = u.un_hi_child_change_id 
-	LEFT JOIN casenum cn ON ae.num_1 = cn.num_1
-	LEFT JOIN event_call cec ON ae.eid = cec.eid
-	INNER JOIN multi_param AS tycod		ON tycod.typ ='tycod'		AND ae.tycod = tycod.value
-	INNER JOIN multi_param AS subty		ON subty.typ ='sub_tycod'	AND ae.sub_tycod = subty.value
-	INNER JOIN multi_param AS unityp	ON unityp.typ ='unityp'		AND u.unityp = unityp.value 
-	INNER JOIN multi_param AS drg		ON drg.typ='dgroup'			AND ae.dgroup = drg.value 
-	INNER JOIN multi_param AS esz		ON esz.typ ='beat'			AND(ae.lev3=esz.value or coalesce(esz.value,'(forced)')='(forced)')
-	INNER JOIN multi_param AS unit		ON unit.typ ='unit'			AND(u.unid = unit.value or unit.value = '')
-	INNER JOIN multi_param AS ofc		ON ofc.typ ='ofc'			AND(cast(uhp.empid as varchar) = ofc.value or ofc.value = '') 
-	INNER JOIN multi_param AS num_1		ON num_1.typ ='num_1'		AND(ae.num_1 = num_1.value or num_1.value = '')
-	INNER JOIN multi_param AS casenum	ON casenum.typ ='casenum'	AND(cn.case_num = casenum.value or casenum.value = '')
-	INNER JOIN multi_param AS disp		ON disp.typ ='disp'			AND(u.cpers = disp.value or disp.value = '')
-	INNER JOIN multi_param AS ct		ON ct.typ ='ct'				AND(cec.cpers = ct.value or ct.value = '')
-	INNER JOIN multi_param AS clrnum	ON clrnum.typ ='clrnum'		AND(dbo.parse_phonenum(cec.clrnum) = clrnum.value or clrnum.value = '')
-WHERE 
-	coalesce(l.estnum,'') like coalesce(@estnum,'%')
-	AND coalesce(l.efeanme,'')	 like coalesce(@efeanme,'%')
-	AND coalesce(l.eapt,'')		 like coalesce(@apt,'%')
-	AND coalesce(l.xstreet1,'')	 like coalesce(@xstreet1,'%')
-	AND coalesce(l.xstreet2,'')	 like coalesce(@xstreet2,'%')
-	AND coalesce(l.edirpre,'')	 like coalesce(@dir_pre	,'%')
-	AND coalesce(l.edirsuf,'')	 like coalesce(@dir_suf,'%')
-	AND coalesce(l.emun,'')		 like coalesce(@muni,'%')	
-	AND((@dispatch = 'y' and ae.ds_ts is not null) or @dispatch ='n')
-	AND((@arrival = 'y' and ae.ar_ts is not null) or @arrival = 'n')
+	)
+		as u
+	OUTER APPLY(
+			select string_agg(dsp.disp,' / ') disp
+			from(
+				select distinct num_1 ,cpers disp
+				from unit_hist u2 
+				where @disp is not null and u.num_1 = u2.num_1 and u2.cpers <> 0 and u2.cterm not like '$%' AND u.unit_detail like '%'+u2.UNID+'%' and u2.cpers = disp.value
+			) 
+				as dsp 
+			group by dsp.num_1
+	) 
+		AS dispr	
+	INNER JOIN multi_param		AS clrnum	ON clrnum.typ ='clrnum'		
+	LEFT JOIN common_event_call AS cec ON @clrnum is not null AND ae.eid = cec.eid AND dbo.parse_phonenum(cec.clrnum) = clrnum.value
+	OUTER APPLY(
+			select string_agg(clrnum,'/') clrnum
+			from event_call AS cec
+			where @clrnum is not null and cec.eid = ae.eid 
+			group by cec.eid
+	) 
+		AS clr
+	INNER JOIN multi_param		AS casenum	ON casenum.typ ='casenum'	
+	LEFT JOIN case_number		AS cn ON @casenum is not null AND cn.num_1 = ae.num_1 AND cn.case_num = casenum.value
+	OUTER APPLY(
+			select string_agg(case_num,'/') case_num
+			from case_number AS cn
+			where @casenum is not null and cn.num_1 = ae.num_1 
+			group by cn.num_1
+	) 
+		AS case_num
+WHERE 	
+	(u.unit_detail is not null or coalesce(@ofc,@unit,@disp,@unityp)='(all)')
+	AND(cec.eid is not null or @clrnum is null)
+	AND(case_num.case_num is not null or @casenum is null)
+	AND coalesce(l.estnum,'')	like coalesce(@estnum,'%')
+	AND coalesce(l.efeanme,'')	like coalesce(@efeanme,'%')
+	AND coalesce(l.eapt,'')		like coalesce(@apt,'%')
+	AND coalesce(l.xstreet1,'')	like coalesce(@xstreet1,'%')
+	AND coalesce(l.xstreet2,'')	like coalesce(@xstreet2,'%')
+	AND coalesce(l.edirpre,'')	like coalesce(@dir_pre	,'%')
+	AND coalesce(l.edirsuf,'')	like coalesce(@dir_suf,'%')
+	AND coalesce(l.emun,'')		like coalesce(@muni,'%')	
+	AND(coalesce(ae.ds_ts,@dispatch )<>'y')
+	AND(coalesce(ae.ar_ts,@arrival  )<>'y')
 
 ), evc AS(
 /*
 	Identify eid with valid event remark. Return concatenated comments if @ShowComments = 'y' or @comm is not null
 */
-SELECT eid.eid ,cmnts
+SELECT eid.event_id ,cmnts
 FROM(
-	SELECT distinct eid.eid 
-	FROM(select distinct eid from ae) AS eid 
-		LEFT JOIN event_remarks c ON eid.eid = c.eid
-		LEFT JOIN multi_param cmnt ON cmnt.typ ='cmnt' AND(c.comm like cmnt.value or cmnt.value='')
+	SELECT distinct eid.event_id 
+	FROM(select distinct event_id from ae where @comm is not null or @showcmnts ='y') AS eid 
+		LEFT JOIN event_comment c ON eid.eid = c.eid 
+		LEFT JOIN multi_param cmnt ON cmnt.typ ='cmnt' AND(c.comm like cmnt.value or cmnt.value='') 
 	WHERE 
 		(@showcmnts = 'Y' and @comm is null)
 		OR(
@@ -95,11 +144,10 @@ FROM(
 	AS eid 
 	CROSS APPLY(
 			SELECT 
-				eid.eid 
+				eid.event_id 
 				,string_agg(comm,'/') cmnts
-			FROM event_remarks  evc
-				LEFT JOIN multi_param  
-					AS cmnt ON cmnt.typ ='cmnt' AND evc.comm like '%'+cmnt.value+'%'
+			FROM event_comments evc
+				LEFT JOIN multi_param AS cmnt ON cmnt.typ ='cmnt' AND evc.comm like '%'+cmnt.value+'%' 
 						AND(
 							left(comm,len(replace(value,'%','')))=value
 							or right(comm,len(replace(value,'%','')))=value
@@ -108,7 +156,8 @@ FROM(
 							or comm like '% '+replace(value,'%','')+'%'
 						)
 			WHERE 
-				evc.eid = eid.eid
+				(@comm is not null or @showcmnts is not null)
+				and evc.eid = eid.eid
 				AND(
 					(@showcmnts ='N' AND cmnt.value is not null)
 					OR(
@@ -126,95 +175,98 @@ FROM(
 		AS cmnts
 
 ), eventsearch AS( 
-SELECT
-	'EventSearch' typ
-	,ae.eid
-	,ae.num_1
-	,ae.EventLocation
-	,ae.dgroup
-	,ae.priority
-	,ae.tycod
-	,ae.sub_tycod
-	,dbo.ts_cadtoformat(ae.sdts	)			AS sdts
-	,dbo.ts_cadtoformat(ae.cdts	)			AS cdts
-	,dbo.ts_cadtoformat(ae.ds_ts)			AS ds_ts
-	,dbo.ts_cadtoformat(ae.en_ts)			AS en_ts
-	,dbo.ts_cadtoformat(ae.ar_ts)			AS ar_ts
-	,dbo.ts_cadtoformat(ae.tr_ts)			AS tr_ts
-	,dbo.ts_cadtoformat(ae.ta_ts)			AS ta_ts
-	,dbo.ts_cadtoformat(ae.xdts	)			AS xdts
-	,dbo.dur_cadhhmmss(ae.sdts,ae.cdts	)	AS call_to_event		--duration in HH:MM:SS format
-	,dbo.dur_cadhhmmss(ae.cdts,ae.ds_ts	)	AS event_to_dispatch	
-	,dbo.dur_cadhhmmss(ae.sdts,ae.ds_ts	)	AS call_to_dispatch		
-	,dbo.dur_cadhhmmss(ae.ds_ts,ae.ar_ts)	AS dispatch_to_arrival	
-	,dbo.dur_cadhhmmss(ae.ar_ts,ae.xdts )	AS arrival_to_close		
-	,null AS unit	/*if @Showunittimes = 'Y' UNION query will call unit/dispatcher/officer tables*/
-	,null AS disp	/*if @Showunittimes = 'Y' UNION query will call unit/dispatcher/officer tables*/
-	,cn AS cn		
-	,cmnts
-	,null ofcr		/*if @Showunittimes = 'Y' UNION query will call unit/dispatcher/officer tables*/
-	,d.d dispo
-FROM ae
-	LEFT JOIN evc ON ae.eid	= evc.eid
-	OUTER APPLY(select num_1 ,string_agg(dispo, char(10)) d from(select distinct num_1 ,dispo from disposition d where d.num_1 = ae.num_1) d group by num_1) AS d
+SELECT distinct
+	'EventSearch'					AS typ
+	,ae.eid							AS eid
+	,ae.num_1						AS num_1
+	,ae.EventLocation				AS Eventlocation
+	,ae.dgroup						AS dgroup
+	,ae.esz							AS esz
+	,ae.priority					AS priority
+	,ae.tycod						AS tycod
+	,ae.sub_tycod					AS sub_tycod
+	,dbo.ts_cadtoformat(ae.sdts	)	AS sdts
+	,dbo.ts_cadtoformat(ae.cdts	)	AS cdts
+	,dbo.ts_cadtoformat(ae.ds_ts)	AS ds_ts
+	,dbo.ts_cadtoformat(ae.en_ts)	AS en_ts
+	,dbo.ts_cadtoformat(ae.ar_ts)	AS ar_ts
+	,dbo.ts_cadtoformat(ae.tr_ts)	AS tr_ts
+	,dbo.ts_cadtoformat(ae.ta_ts)	AS ta_ts
+	,dbo.ts_cadtoformat(ae.xdts	)	AS xdts
+	,ae.unit_detail					AS unit_detail										
+	,ae.disp						AS disp										
+	,coalesce(cn.cn,ae.case_num) 	AS cn		
+	,cmnts							AS cmnts
+	,dispo							AS dispo
+	,disp							AS dispatcher
+	,case_num						AS case_num
+	,clrnum							AS clrnum
+	,CASE WHEN @showrespdur = 'Y' THEN replace(dbo.dur_cadhhmmss(ae.sdts,ae.cdts)	,' ','') END AS call_to_evnt
+	,CASE WHEN @showrespdur = 'Y' THEN replace(dbo.dur_cadhhmmss(ae.cdts,ae.ds_ts)	,' ','') END AS envt_to_disp
+	,CASE WHEN @showrespdur = 'Y' THEN replace(dbo.dur_cadhhmmss(ds_ts,ar_ts)		,' ','') END AS disp_to_arrv
+	,CASE WHEN @showrespdur = 'Y' THEN replace(dbo.dur_cadhhmmss(ar_ts,xdts)		,' ','') END AS arrv_to_clse
+	,CASE WHEN @showrespdur = 'Y' THEN replace(dbo.dur_cadhhmmss(tr_ts,ta_ts)		,' ','') END AS trns_trar
+FROM ae		
+	LEFT JOIN evc ON ae.eid	= evc.eid AND(@showcmnts='Y' or @comm is not null)
+	OUTER APPLY(select num_1 ,string_agg(dispo, ' / ') dispo from(select distinct num_1 ,dispo from ev_dispo d where d.num_1 = ae.num_1) d group by num_1) AS d
 	OUTER APPLY(
-			select cn.num_1 ,string_agg(cn.case_num,'/') cn
-			from casenum cn
-			WHERE ae.num_1 = cn.num_1
-			group by num_1
-	)
-		AS cn
-
-WHERE (cmnts is not null and @comm is not null) OR(@comm is null)
-
+					select cn.num_1 ,string_agg(cn.case_num,'/') cn
+					from case_number cn
+					WHERE ae.num_1 = cn.num_1 AND @showcn = 'y'
+					group by num_1
+			)
+			AS cn
+			
+WHERE (cmnts is not null and @comm is not null) OR(@comm is null) 
 )
-/*
-	parameter @showunittimes dictates execution of union query
-	ssrs will execute 2nd query if parameter equals Y
-*/
-SELECT * FROM eventsearch UNION
+SELECT * FROM eventsearch
+	UNION
 SELECT 
-	'UnitTimes'
-	, z.eid
-	,z.num_1
-	,z.EventLocation
-	,z.dgroup
-	,z.priority
-	,z.tycod
-	,z.sub_tycod
-	,z.sdts
-	,z.cdts
-	,dbo.ts_cadtoformat([dp])
-	,dbo.ts_cadtoformat([en])
-	,dbo.ts_cadtoformat([s]	)
-	,dbo.ts_cadtoformat([tr])
-	,dbo.ts_cadtoformat([ta])
-	,z.xdts
-	,z.call_to_event
-	,z.event_to_dispatch
-	,z.call_to_dispatch
-	,dbo.dur_cadhhmmss([dp],[s]) 
-	,dbo.dur_cadhhmmss([s],[a]) 
-	,unit.unid
-	,null disp
-	,cn
+	'UnitTimes' typ
+	,eid
+	,ae.num_1
+	,Eventlocation
+	,dgroup
+	,esz
+	,priority
+	,tycod
+	,sub_tycod
+	,sdts
+	,cdts
+	,[dp]
+	,[en]
+	,[s]
+	,[tr]
+	,[ta]
+	,[a]
+	,concat(unid,': ',empid) 			
+	,disp			
+	,cn		
 	,cmnts
-	,empid ofcr
 	,dispo
-FROM eventsearch z
+	,dispatcher
+	,case_num
+	,clrnum
+	,call_to_evnt
+	,envt_to_disp
+	,disp_to_arrv
+	,arrv_to_clse
+	,trns_trar
+FROM eventsearch ae
 	CROSS APPLY(
 			SELECT num_1 ,unid ,[dp],[en],[s],[tr],[ta],coalesce([a],[am]) [a] ,string_agg(empid,' / ') empid
 			FROM(
 				select z.num_1,u.unid,u.unit_status,min(u.cdts) ts ,min(u.un_hi_child_change_id) childchange
 				from eventsearch z
-					left join unit_history u ON z.num_1 = u.num_1
-				where coalesce(u.unit_status,'dp') in('dp','e','s','tr','ta','a','am') AND @unittimes ='y'
+					inner join unit_hist u ON z.num_1 = u.num_1 and @unittimes ='y'
+				where @unittimes ='y' AND coalesce(u.unit_status,'dp') in('dp','e','s','tr','ta','a','am') 
 				group by z.num_1 ,u.unid ,u.unit_status
 			)
 			AS z
 				PIVOT(max(ts) for unit_status in([dp],[en],[s],[tr],[ta],[a],[am])) AS pvt
-				LEFT JOIN unit_hist_personnel uhp ON uhp.un_hi_child_change_id = pvt.childchange
-			WHERE pvt.num_1 = z.num_1
+				LEFT JOIN un_hi_persl uhp ON @unittimes  ='y' AND uhp.un_hi_child_change_id = pvt.childchange 
+			WHERE pvt.num_1 = ae.num_1
 			GROUP BY num_1 ,unid ,[dp],[en],[s],[tr],[ta],coalesce([a],[am])
 	) unit
-ORDER BY typ ,cdts	
+WHERE @unittimes='y'
+ORDER BY typ ,cdts
