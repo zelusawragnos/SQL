@@ -6,16 +6,17 @@
 
 WITH FilterFeeder AS(
 SELECT 
-	num_1
-	,tycod
-	,datediff(second,dbo.ts_cadtoformat(cdts),dbo.ts_cadtoformat(ar_ts)) ranking_value
-FROM ae 
-WHERE ag_id = 'fd' AND cdts like '20250601%' AND ar_ts is not null
-	and datediff( second ,dbo.string_to_datetime2( cdts ) ,dbo.string_to_datetime2( ar_ts )) > 3
+	session
+	,category
+	,datediff(second,starttime,endtime) ranking_value
+FROM session 
+WHERE 
+	endtime is not null
+	and datediff(second,starttime,endtime)> 3
 
 ), Incrementer AS( 
 SELECT 
-	num_1
+	session
 	,ranking_value
 	,percent_rank() over( order by ranking_value ) perccer
 	,cast( percent_rank() over( order by ranking_value )*510 as int ) incrementer
@@ -40,7 +41,7 @@ SELECT
 	,concat( '"#' ,ltrim(rtrim( r1)) ,ltrim(rtrim( r2)) ,ltrim(rtrim( g1)) ,ltrim(rtrim( g2)) ,ltrim(rtrim( b )) ,'"' ) hex 
 FROM(
 SELECT 
-	num_1
+	session
 	,ranking_value
 	,concat( '( ',r ,',',g,',',b,' )' ) rgb
 	,CASE r/16
