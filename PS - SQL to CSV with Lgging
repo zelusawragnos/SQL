@@ -2,38 +2,34 @@ $now = Get-Date
 $date = $now.tostring("yyyy-MM-dd") 
 
 # Output file path 
-$outputFile = "C:\MaintenanceBats\FD_AVL\FDUnitStatus"
+$outputFile = "C:\psfile\OrderStatus"
 
 
 #Log file 
-$logfolder = "C:\MaintenanceBats\FD_AVL\Logs"
-$logname = "fd_avl_log"
+$logfolder = "C:\ps_loc\OrderStatusL\Logs"
+$logname = "orderstat"
 $time = get-date -format "hh:mm"
 $logname = "$logfolder\"+"$logname"
-$outputarchive = "C:\MaintenanceBats\AVL\Logs\outputcopy"
-$logname_pattern = "fd_avl*"
+$outputarchive = "C:\psloc\order\Logs\cpy"
+$logname_pattern = "cpy*"
 
 #database connection & query
-$db_aog = @("dbaol")
-$query = "SET NOCOUNT ON; EXEC [LIVE].[dbo].[AVL_Status]"
-$header1 = '"Unit","Vehicle ID","Event Number","Status","Latitude","Longitude"'
-$header2 = '"String","String","String","String","String","String"'
+$db_aog = @("aol")
+$query = "select order ,typ ,datetime ,status"
+$header1 = '"order","typ","datetime","status"'
 
 
-
-# ==== Query & File Export ==== #
 #query exection
 while ($true) {
 $time = (Get-date).tostring("HH:mm")
     try {
 
         $sqlcmdArgs = @(
-            "-S", $db_aog,     #server/avail.group
-            "-E"               #current user credentials
-            "-Q", "`"$query`"",#query
-            "-s", ",",         # CSV delimiter
-            "-W",              # Trim trailing spaces
-            "-h", "-1"         # Remove dashed line under headers
+            "-S", $db_aog,     #listener
+            "-E"               #creds
+            "-Q", "`"$query`"",#q
+            "-s", ",",         # delim
+            "-h", "-1"         # dashed lines 
         )
        $output = sqlcmd @sqlcmdArgs 
 
@@ -42,21 +38,17 @@ $output | Out-File -FilePath $outputFile -Encoding utf8
 
 # ==== Logging === # 
 
-# import csv for row count
+# import
 $output | Out-File -FilePath $outputarchive -Encoding utf8
 $rowCount = (Import-Csv $outputarchive).Count
-    Write-Host "Row count: $rowCount"
 
-
-# Read the latest write-time of latest log file
 $latestlogFile = Get-ChildItem -Path $logfolder -Filter $logname_pattern |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 
 $lastlogtime = $latestlogFile.LastWriteTime
 
-
-#Calculate duration between last log file write and now  
+#repeat on dur paramters 
 $now2 = get-date
 $duration = New-TimeSpan -Start $lastlogtime -End $now2
 $dur_seconds = [math]::round($duration.TotalSeconds)
@@ -97,16 +89,13 @@ catch {
     }
 
 # === Delete LogFiles === #
-
-#At a 00:13 everyday, execute script for delete log files older than 7 days
-
 $logdeletetime = "00:13" 
 $logRetentionDays = -7
 $now3 = (Get-date).tostring("HH:mm")
 
 if( $now3 -eq $logdeletetime)
 {
-$getlogrecord =  Get-ChildItem -Path $logfolder -File | Where-Object {$_.Name.ToLower().StartsWith("epfd_avl_log") -and $_.LastWriteTime -lt $now.adddays($logRetentionDays)}
+$getlogrecord =  Get-ChildItem -Path $logfolder -File | Where-Object {$_.Name.ToLower().StartsWith("orderst") -and $_.LastWriteTime -lt $now.adddays($logRetentionDays)}
 
 
 #Log successful deletion of log files
@@ -136,27 +125,26 @@ $logger = Get-Content $logfile | Select-Object -Last 5
 
 if( $minute_place -eq $email_interval -and $logger -match "error")
  {
- function SendAlert {
+ function a {
     try {
         $emailParams = @{
             From       = 'noreply@email.org'
             To         = 'email@email.org'
-            Subject    = "GPS Monitor: Error"
+            Subject    = "error"
             Body       = "$logger"
             SmtpServer = '11.11.11.11'
         }
 
         Send-MailMessage @emailParams
-       # LogMessage "📧 ALERT: Sent empty file threshold email to $($emailParams.To)"
+       # LogMessage "📧 ALERT: Sent"
     } catch {
-        #LogMessage "❌ ERROR sending email alert: $_"
+        #LogMessage "❌ ERROR"
     }
 }
  
- SendAlert
+ a
 
 }
 
-    Start-Sleep -Seconds 5
 }
 
