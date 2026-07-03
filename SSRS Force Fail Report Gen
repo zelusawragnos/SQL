@@ -1,47 +1,20 @@
-DECLARE @reportinterval_sec int
-SET @reportinterval_sec = 500
+DECLARE @interval int = 100
 ;
-WITH ae AS(
+WITH orders AS(
 /*Return current day hydrant events - if any record has occurred since last execution, assign 1 */
 SELECT distinct	
-	ae.eid ,ae.num_1 ,dbo.ts_cadtosql(ae.cdts) ts ,ae.esz ,ae.sub_tycod 
-	,prim_unit
-	,replace(ae.cterm,'$','') cterm
-	,l.EventLocation+coalesce(', '+zip,'') loc
-	,concat(l.latitude,', ',l.longitude) latlong
-	,CASE WHEN datediff(second,dbo.ts_cadtosql(ae.cdts),getdate())<=@reportinterval_sec THEN 1 END force_fail
-FROM agency_event ae
-	LEFT JOIN ev_dispo d ON ae.num_1 = d.num_1
-	LEFT JOIN EventLocation l ON ae.eid = l.eid
+	order
+	,date
+	,CASE WHEN datediff(second,date,getdate())<=@interval THEN 1 END f
+FROM orders
+WHERE date beween dateadd(hour,-7,getdate()) and getdate()
 
-WHERE ag_id ='epfd' 
-	AND sub_tycod = 'hydmaint'
-	AND cast(dbo.ts_cadtosql(ae.cdts) as date) = cast(getdate() as date)
-	AND coalesce(d.dispo,'00')in('00')
-	AND ae.ds_ts is not null
-	AND EventLocation not in('z','')
 )
 /*
-	If no record exists with Force-Fail = 1, the query will fail/ no report generated
-	If a record was created since last execution, the query will return all current day events
+	No valid record errors query & report send fails
+	Valid record succesfuly executres query
 */
-SELECT 
-	ts										AS [Event Date & Time]
-	,loc									AS [Event Location]
-	,ae.esz									AS [District]
-	,latlong								AS [Lat/Long]
-	,coalesce(ae.prim_unit,u.unid,cterm)	AS [Unit]
-	,ae.num_1								AS [Event Number]
-	,sub_tycod								AS [Sub-Type]
-	,force_fail								AS [Force Fail]									
-FROM ae
-	OUTER APPLY(
-			select u.num_1 ,min(u.unid) unid 
-			from un_hi u 
-			where ae.num_1 = u.num_1
-			group by u.num_1
-	)  
-		AS u
+SELECT * FROM orders
 	UNION
-SELECT null,left('z',count(num_1)-1),null,null,null,null,null,null FROM ae WHERE force_fail = 1
+SELECT null,left('p',count(num_1)-1),null,null,null,null,null,null FROM ae WHERE force_fail = 1
 ORDER BY ts desc
