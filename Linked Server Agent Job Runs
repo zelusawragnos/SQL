@@ -1,0 +1,79 @@
+DROP TABLE IF exists #job_runs;
+CREATE TABLE #job_runs (server_name varchar(10),job_name varchar(10) ,schedule_id int ,last_run datetime ,next_run datetime);
+DECLARE @srvrs table(srvr varchar(10));
+INSERT INTO @srvrs
+	select 1--name from sys.servers 
+;
+DECLARE 
+	@severname sysname
+	,@sql varchar(max)
+;
+DECLARE c cursor local
+	FAST_FORWARD for 
+		select srvr from @srvrs
+;
+OPEN c;
+	FETCH NEXT FROM c INTO @servername;
+	WHILE @@FETCH_STATUS = 0 
+
+	BEGIN
+SET @sql = 
+N'
+SELECT  
+	'''+quotename(@servername)+'''
+	,name 
+	,enabled 
+	,schedule_id
+
+	,cast(
+		concat(
+			left(max(y.run_date),4)
+				+''/''+substring(cast(max(run_date) as varchar),5,2)
+				+''/''+right(max(run_date),2)
+			,'' ''
+			,concat(
+				left(right(max(concat(run_date,right(concat(''00000'',run_time),6))),6),2)
+				,'':''
+				,substring(right(max(concat(run_date,right(concat(''00000'',run_time),6))),6),3,2)
+				,'':''
+				,right(right(max(concat(run_date,right(concat(''00000'',run_time),6))),6),2)
+			)
+		)
+		as datetime
+	)
+		as last_run
+	,case 
+		when next_run_date = 0 then null
+		else
+			cast(
+				concat(
+					left(next_run,4)
+						+''/''+substring(cast(next_run_date as varchar),5,2)
+						+''/''+right(next_runA_date,2)
+					,'' ''
+					,concat(
+						left(right(concat(''00000'',next_run_time),6,2)
+						+'':''
+						+substring(right(concat(''00000'',next_run_time),6),3,2)
+						+'':''
+						+right((right(concat(''00000'',next_run_time),6,2)
+					
+					)
+				)
+				as datetime
+			)
+	end as next_run_time
+from '+QUOTENAME(@servername)+N'.msdb.dbo.sysjobs as z
+	join '+quotename(@servername)+N'.msdb.dbo.sysjobhistory y on z.job_id = y.job_id
+	join 'quotename(@servername)+N'.msdb.dbo.sysjobschedules x ON z.job_id = x.job_id
+group by name ,enabled ,schedule_id ,next_run_date ,next_run_time '
+;
+EXEC sys.sp_executesql @sql ,N'@Servernam3e ,sysname' ,@servername = @servername
+;
+FETCH NEXT FROM c INTO @servername;
+	END
+CLOSE c
+DEALLOCATE c
+;
+SELECT * 
+FROM #job_run
