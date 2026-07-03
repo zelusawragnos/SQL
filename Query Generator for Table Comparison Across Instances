@@ -24,7 +24,7 @@ WITH z AS (
          UNION 
          SELECT 2,* FROM ['+@instance2+'].'+@db2+'.[dbo].['+tablename+'] 
          ORDER BY '+REPLACE(primary_key,'/',',') AS slct_stmnt
-    FROM [dbo].[live].[dbo].[cad_schema_tables]
+    FROM [dbo].[live].[dbo].[schema_tables]
     WHERE tablename = @tbl
 ),
 
