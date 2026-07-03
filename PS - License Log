@@ -1,21 +1,21 @@
 # Path to your copied report log 
-#$log = 'C:\rptgen.txt'
-$log = 'C:\Program Files (x86)\Intergraph\Licensing\19.00\Program\rptgen'
+#$log = 'C:\user_log.txt'
+$log = 'Z:\Logs\user_log.txt'
 $date = get-date -format "MM/dd"
 $date2 = get-date -format "yyyy/MM/dd"
 
 # Counter to know which line we’re on
 $index = 0
 
-# Search for lines that contain "netdispatcher" AND start with IN or OUT
+# Search for lines that contain "progam1" AND start with IN or OUT
 $matches = Get-Content $log | Where-Object {
-    ($_ -match '^(IN|OUT)\s') -and (($_ -match 'intergraph_dispatcher') -or ($_ -match 'intergraph_calltaker'))
+    ($_ -match '^(IN|OUT)\s') -and (($_ -match 'program1') -or ($_ -match 'program2'))
 } | ForEach-Object{
     $line = $_
 
     $line = $line -replace 'IN 1', 'IN'
-    $line = $line -replace "9.42312 8", ""
-    $line = $line -replace "9.42312 ", ""
+    $line = $line -replace "id_121", ""
+    $line = $line -replace "id_678 ", ""
 
 
 # With:      <tok3> <tok2> <tok1> $placer$
@@ -66,7 +66,7 @@ $line = $line -replace("$date','","$date ")
 $line = $line -replace("$date", "$date2")
 $line = $line -replace(",'4'")
 $line = $line -replace(",'2'")
-$line = "SELECT 'ELPTEST','"+$line+"'"
+$line = "SELECT 'DB1','"+$line+"'"
     # Add UNION at the beginning except first line
     if ($index -gt 0) {
         $line = "UNION " + $line
@@ -77,23 +77,17 @@ $line = "SELECT 'ELPTEST','"+$line+"'"
    $line
 }
 
-# Show results in console
-$matches
-
-$1
-
-# Save to file
-$matches | Out-File C:\netdispatcher_inout.txt -Encoding utf8
-
-
-# ----- SQLCMD section -----
-$sqlServer = "server" 
-$database  = "db"
-$username  = "user"
-$password  = "password"
+# ---sql param
+$sql = "server" 
+$db  = "db"
+$usr  = "user"
+$pssswrd  = "password"
 
 # Your SELECT/UNION block as a single string
 $sqlBody = ($matches -join "`r`n")
+
+# write to txt
+$matches | Out-File C:\netdispatcher_inout.txt -Encoding utf8
 
 # Insert into a single NVARCHAR column called [rawline]
 # Make sure table dbo.license_usage has a column [rawline] NVARCHAR(MAX)
@@ -106,28 +100,25 @@ $sqlBody
 "@
 
 # Write SQL to file and execute with sqlcmd
-$sqlFile = 'C:\netdispatcher_insert.sql'
+$sqlFile = 'C:\USERLOG_write_to_db.sql'
 $finalSql | Out-File $sqlFile -Encoding UTF8
 
-# Use SQL auth (as you had). For Windows auth, replace with: -E and remove -U/-P
 $sqlcmdArgs = @(
-    "-S", $sqlServer,
-    "-d", $database,
-    "-U", $username,
-    "-P", $password,
+    "-S", $sql,
+    "-d", $db,
+    "-U", $usr,
+    "-P", $psswrd,
     "-b",
     "-W",
-    "-i", $sqlFile
+    "-i", $sql
 )
-
-Write-Host "Running sqlcmd with $sqlFile ..."
 try {
     & sqlcmd @sqlcmdArgs
     $exit = $LASTEXITCODE
     if ($exit -ne 0) {
-        Write-Host "sqlcmd failed with exit code $exit."
+        Write-Host "ERROR"
     } else {
-        Write-Host "sqlcmd completed successfully."
+        Write-Host "Success"
     }
 } catch {
     Write-Host "sqlcmd threw an exception: $($_.Exception.Message)"
