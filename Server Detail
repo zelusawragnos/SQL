@@ -1,0 +1,227 @@
+USE [INVENTORYDB]
+GO
+
+/****** Object:  StoredProcedure [dbo].[stats_server]    Script Date: 7/21/2026 11:29:39 AM ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+
+
+--exec [dbo].[stats_server]  @servers = '*'
+
+CREATE PROCEDURE [dbo].[stats_server] 
+(
+	@servers varchar(500)
+)
+	as
+begin
+DROP TABLE if exists #server_stats;
+CREATE TABLE #server_stats
+	(
+		server_name varchar(30),run_session int 
+		,db_cnt int ,recover_full int ,recover_simp int ,jobs_enbabled int ,jobs_scheduld int 
+		,login_sql int ,login_win int ,login_grp int ,db_mdf_gb int ,db_ldf_gb int
+		,restart_time datetime ,cpu_count int ,memory_gb int
+		,cl_name varchar(25) ,quorum_typ varchar(30)
+		,ag_db_cnt int ,primary_replica int ,sync_health varchar(24) ,redo_queue int ,redo_rate int ,redo_lag float
+		--,vrz varchar(max)
+	)
+;
+DROP TABLE if exists #vrz
+create table #vrz(server_name varchar(200),vrz varchar(max));
+
+DECLARE @srvrs table(srvr varchar(50));
+INSERT INTO @srvrs 
+		select name 
+	from sys.servers z
+		left join(select * from string_split(@servers,',') z) y ON z.name = y.value
+	where 
+		name not in('kbox','vs01-181') --and name not like '%15%'
+		and(@SERVERS = '*' or y.value is not null)
+;
+DECLARE
+	@servername sysname,
+	@sql nvarchar(max),
+	@qq nvarchar(max)
+;
+DECLARE cur cursor local
+	FAST_FORWARD for 
+		select srvr from @srvrs
+;
+OPEN cur;
+FETCH NEXT FROM cur INTO @servername;
+WHILE @@FETCH_STATUS = 0 
+	BEGIN
+SET @qq  =
+N'
+	IF ''[+@@SERVERNAME]'' = '''+QUOTENAME(@servername)+''' 
+		insert into #vrz SELECT  '''+QUOTENAME(@servername)+''' ,@@VERSION vrz
+		ELSE 
+		insert into #vrz select  replace(replace('''+quotename(@servername)+''',''['',''''),'']'','''') ,vrz from openquery('+quotename(@servername)+',''select replace(@@version,char(9),char(32)) as vrz'')
+'
+
+SET @sql = 
+
+N'
+insert into #server_stats
+select * 
+from(
+	select
+		replace(replace('''+quotename(@servername)+''',''['',''''),'']'','''')	server_name
+		,count(r.session_id) run_cnt
+	from ' +quotename(@servername)+'.master.sys.dm_exec_requests r 
+		left join ' +quotename(@servername)+'.master.sys.dm_exec_sessions s on r.session_id = s.session_id
+	where r.status = ''running'' and nt_user_name <>''JoseB6578a''
+)
+	as ses_cnt
+	cross apply(
+		select count(name) all_cnt ,max(full_cnt) full_cnt ,max(simp_cnt) simp_cnt
+		from ' +quotename(@servername)+'.master.sys.databases z
+			outer apply(select count(name) full_cnt from ' +quotename(@servername)+'.master.sys.databases where recovery_model_desc = ''full'' and database_id >=5) y 
+			outer apply(select count(name) simp_cnt from ' +quotename(@servername)+'.master.sys.databases where recovery_model_desc = ''simple'' and database_id >=5) x
+	  where database_id >=5 
+	) db_cnt
+	cross apply(
+	select sum(enb) enb ,count(cnt) sched_cnt
+	from(
+		select name ,max(enabled) enb ,count(schedule_id) cnt
+		from ' +quotename(@servername)+'.msdb.dbo.sysjobs z
+			left join ' +quotename(@servername)+'.msdb.dbo.sysjobschedules y on z.job_id = y.job_id
+		group by name
+	) 
+		as z
+	) 
+		as job_cnt
+	cross apply(
+		select count(type_desc) sql_cnt ,max(win_cnt) win_cnt ,max(grp_cnt) grp_cnt
+		from ' +quotename(@servername)+'.master.sys.server_principals z
+			outer apply(select count(type_desc) win_cnt from ' +quotename(@servername)+'.master.sys.server_principals where type_desc = ''windows_login'') y 
+			outer apply(select count(type_desc) grp_cnt from ' +quotename(@servername)+'.master.sys.server_principals where type_desc = ''windows_group'') X 
+		where type_desc in(''sql_login'')
+	)
+		as lgn_cnt
+	cross apply(
+		select sum((size*8.0)/1024/1024) r_gb ,max(l_gb) l_gb
+		from ' +quotename(@servername)+'.master.sys.master_files mf
+			cross apply(select sum((size*8.0)/1024/1024) l_gb from ' +quotename(@servername)+'.master.sys.master_files where type_desc = ''log'') i
+		where type_desc = ''rows''
+		)
+			as db_stat
+	cross apply(
+		select sqlserver_start_time ,cpu_count ,physical_memory_kb/1024/1024 physical_memory_kb
+		from ' +quotename(@servername)+'.master.sys.dm_os_sys_info
+	)
+		as srv_stat
+	outer apply(select case when cluster_name ='''' then null else cluster_name end cluster_name ,quorum_type_desc from '+quotename(@servername)+'.master.sys.dm_hadr_cluster) cl
+	outer apply(
+		select 
+			case when count(replica_id)= 0 then null else count(replica_id) end cnt
+			,max(cast(is_primary_replica as int)) primary_replica 
+			,case 
+				when max(synchronization_health_desc)=min(synchronization_health_desc) then max(synchronization_health_desc)
+				else max(synchronization_health_desc)+''/''+max(synchronization_health_desc)
+			end sync_health
+			,max(redo_queue_size) redo_queu 
+			,max(redo_rate) redo_rate 
+			,(max(redo_queue_size)+.0)/(max(redo_rate)+.0) redo_lag
+		from ' +quotename(@servername)+'.master.sys.dm_hadr_database_replica_states
+		where is_local = 1 
+	) 
+		as ag
+	
+	
+'
+;
+IF QUOTENAME(@servername) <> '['+@@servername+']'
+	EXEC sys.sp_executesql @qq,N'@Servername sysname',@servername = @servername ;
+	ELSE INSERT INTO #vrz select @@servername ,replace(@@version,char(9),char(32))
+;
+EXEC sys.sp_executesql @sql,N'@Servername sysname',@servername = @servername;
+FETCH NEXT FROM cur INTO @servername; 
+	END 
+;
+CLOSE cur 
+DEALLOCATE cur;
+
+SELECT 
+	z.server_name
+	,right(replace(left(y.vrz,charindex('(',y.vrz,1)),' (',''),4)
+		+' '
+		+replace(replace(replace(
+			left(
+				right(vrz,len(vrz)-charindex('corporation',vrz,1))
+				,charindex('edition',right(vrz,len(vrz)-charindex('corporation',vrz,1)),1)+6
+			)
+			,'orporation',''),' Edition',''),' ',''
+		)
+		AS sql_edition
+	,CASE WHEN vrz like '%(kb%' THEN 
+	replace(replace(replace(
+	left(right(vrz,len(vrz)-charindex(') -',vrz,1)),charindex('(',right(vrz,len(vrz)-charindex(') -',vrz,1)),1))
+	,'(',''),'-',''),' ','')
+	END sql_version
+	,CASE WHEN vrz like '%(kb%' THEN 
+			replace(
+				left(
+					right(vrz,len(vrz)-charindex('(KB',vrz,1))
+					,charindex(')',right(vrz,len(vrz)-charindex('(KB',vrz,1)),1)
+				)
+				,')','') 
+	END AS kb_id
+	,cast(
+		left(
+			replace(
+				left(
+					right(vrz,len(vrz)-charindex(mon,vrz,1))
+					,charindex('copyright',right(vrz,len(vrz)-charindex(mon,vrz,1)))
+				)
+				,' c',''
+			),20
+		)
+		as datetime
+	) AS kb_build_date
+	
+	,db_cnt
+	,db_mdf_gb
+	,db_ldf_gb
+	,z.restart_time
+	,login_sql+login_win+login_grp login_cnt
+	,jobs_scheduld
+	,jobs_enbabled
+	,recover_full
+	,recover_simp
+	,run_session
+	,memory_gb
+	,cpu_count
+	,cl_name
+	,ag_db_cnt
+	,primary_replica
+	,sync_health
+	,quorum_typ
+	,redo_queue
+	,redo_rate
+	,redo_lag
+	,login_sql
+	,login_win
+	,login_grp
+FROM #server_stats z
+	LEFT JOIN #vrz y ON z.server_name = y.server_name
+	LEFT JOIN(
+		select * 
+		from(
+			values
+				('jan'),('feb '),(' mar '),(' apr ')
+				,(' may ' ),(' jun '),(' jul '),(' aug ')
+				,(' sep '),(' oct '),(' nov '),(' dec ')
+		) y (mon)
+	)
+		AS mon ON replace(vrz,char(9),' ') like '%'+mon.mon+'%' 
+ORDER BY db_mdf_gb desc
+	end 
+GO
+
+
